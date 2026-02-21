@@ -788,6 +788,22 @@ def create_app():
     def profile_page():
         return render_template("profile.html")
 
+    @app.get("/about")
+    def about_page():
+        return render_template("about.html")
+
+    @app.get("/contact")
+    def contact_page():
+        return render_template("contact.html")
+
+    @app.get("/privacy")
+    def privacy_page():
+        return render_template("privacy.html")
+
+    @app.get("/terms")
+    def terms_page():
+        return render_template("terms.html")
+
     @app.get("/auth/captcha")
     def captcha():
         challenge, answer = generate_captcha_pair()
