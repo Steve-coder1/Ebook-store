@@ -782,6 +782,11 @@ def create_app():
     def admin_page():
         return render_template("admin.html")
 
+    @app.get("/profile")
+    @require_auth()
+    def profile_page():
+        return render_template("profile.html")
+
     @app.get("/auth/captcha")
     def captcha():
         challenge, answer = generate_captcha_pair()
@@ -1460,6 +1465,7 @@ def create_app():
                     "review_id": row.id,
                     "ebook_id": row.ebook_id,
                     "ebook_title": ebook.title if ebook else None,
+                    "ebook_slug": ebook.slug if ebook else None,
                     "rating": row.rating,
                     "review_text": row.review_text,
                     "created_at": row.created_at.isoformat(),
@@ -2004,6 +2010,7 @@ def create_app():
                     "history_id": row.id,
                     "ebook_id": row.ebook_id,
                     "ebook_title": ebook.title if ebook else None,
+                    "ebook_slug": ebook.slug if ebook else None,
                     "code_id": row.code_id,
                     "version_label": row.version_label,
                     "downloaded_at": row.downloaded_at.isoformat(),
@@ -2032,6 +2039,7 @@ def create_app():
                     "user_id": row.user_id,
                     "ebook_id": row.ebook_id,
                     "ebook_title": ebook.title if ebook else None,
+                    "ebook_slug": ebook.slug if ebook else None,
                     "code_id": row.code_id,
                     "version_label": row.version_label,
                     "downloaded_at": row.downloaded_at.isoformat(),

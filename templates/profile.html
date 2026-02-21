@@ -1,0 +1,96 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>My Profile Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-row">
+      <a class="logo" href="/">📚 EbookStore</a>
+      <button id="menu-toggle" class="icon-btn" aria-label="Toggle navigation">☰</button>
+      <nav id="main-nav" class="main-nav">
+        <a href="/">Home</a>
+        <a href="#history-panel">Download History</a>
+        <a href="#favorites-panel">Favorites</a>
+        <a href="#reviews-panel">Reviews</a>
+      </nav>
+      <div class="header-actions">
+        <label class="theme-toggle">
+          <input type="checkbox" id="theme-toggle" />
+          <span>Dark</span>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="section-block profile-header-block">
+      <h1>My Dashboard</h1>
+      <p id="profile-email" class="muted-text">Loading profile…</p>
+
+      <div class="profile-settings-grid">
+        <form id="change-email-form" class="section-mini">
+          <h3>Change email</h3>
+          <input type="email" name="new_email" placeholder="New email" required />
+          <input type="password" name="password" placeholder="Current password" required />
+          <button type="submit">Update email</button>
+        </form>
+
+        <form id="change-password-form" class="section-mini">
+          <h3>Change password</h3>
+          <input type="password" name="old_password" placeholder="Current password" required />
+          <input type="password" name="new_password" placeholder="New password" required />
+          <button type="submit">Update password</button>
+        </form>
+      </div>
+      <p id="settings-feedback" class="muted-text"></p>
+    </section>
+
+    <section class="section-block profile-sections">
+      <div class="profile-tabs" role="tablist" aria-label="Profile sections">
+        <button class="tab-btn active" data-tab="history-panel" type="button">Download History</button>
+        <button class="tab-btn" data-tab="favorites-panel" type="button">Favorites</button>
+        <button class="tab-btn" data-tab="reviews-panel" type="button">Reviews Posted</button>
+      </div>
+
+      <section id="history-panel" class="tab-panel active collapsible" data-collapsible>
+        <button class="collapse-toggle" type="button">Download History <span>▾</span></button>
+        <div class="collapse-content open">
+          <div id="history-list" class="profile-cards"></div>
+          <div id="history-pagination" class="catalog-pagination"></div>
+        </div>
+      </section>
+
+      <section id="favorites-panel" class="tab-panel collapsible" data-collapsible>
+        <button class="collapse-toggle" type="button">Favorites <span>▾</span></button>
+        <div class="collapse-content open">
+          <div class="favorites-toolbar">
+            <label>Sort
+              <select id="favorite-sort">
+                <option value="recent">Recently added</option>
+                <option value="rating">Rating</option>
+                <option value="title">Title</option>
+              </select>
+            </label>
+          </div>
+          <div id="favorites-list" class="profile-cards"></div>
+          <div id="favorites-pagination" class="catalog-pagination"></div>
+        </div>
+      </section>
+
+      <section id="reviews-panel" class="tab-panel collapsible" data-collapsible>
+        <button class="collapse-toggle" type="button">Reviews Posted <span>▾</span></button>
+        <div class="collapse-content open">
+          <div id="reviews-list-profile" class="profile-cards"></div>
+          <div id="reviews-pagination" class="catalog-pagination"></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script src="/static/profile.js"></script>
+</body>
+</html>

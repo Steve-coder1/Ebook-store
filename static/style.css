@@ -283,3 +283,30 @@ pre { white-space: pre-wrap; background: #111; color: #d4ffd4; padding: 0.75rem;
   .collapsible .collapse-content { display: none; }
   .collapsible .collapse-content.open { display: block; }
 }
+
+.profile-header-block h1 { margin-top: 0; }
+.profile-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+.profile-sections { display: grid; gap: .75rem; }
+.profile-tabs { display: flex; gap: .5rem; flex-wrap: wrap; }
+.tab-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  padding: .45rem .7rem;
+}
+.tab-btn.active { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); border-color: var(--accent); }
+.tab-panel { display: none; opacity: 0; transform: translateY(5px); transition: opacity .2s ease, transform .2s ease; }
+.tab-panel.active { display: block; opacity: 1; transform: translateY(0); }
+.profile-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+.profile-card { border: 1px solid var(--border); border-radius: 10px; padding: .75rem; background: var(--surface); }
+.ebook-hover-card { transition: transform .2s ease, box-shadow .2s ease; }
+.ebook-hover-card:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(0,0,0,.1); }
+.inline-actions { display: flex; align-items: center; gap: .5rem; }
+.favorites-toolbar { margin-bottom: .6rem; }
+
+@media (max-width: 768px) {
+  .profile-settings-grid, .profile-cards { grid-template-columns: 1fr; }
+  .profile-tabs { display: none; }
+  .tab-panel { display: block; opacity: 1; transform: none; }
+}
