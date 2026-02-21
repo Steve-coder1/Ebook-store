@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ebook Details</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-row">
+      <a class="logo" href="/">📚 EbookStore</a>
+      <button id="menu-toggle" class="icon-btn" aria-label="Toggle navigation">☰</button>
+      <nav id="main-nav" class="main-nav">
+        <a href="/">Home</a>
+        <a href="/#catalog-section">Catalog</a>
+        <a href="#reviews-section">Reviews</a>
+      </nav>
+      <div class="header-actions">
+        <label class="theme-toggle">
+          <input type="checkbox" id="theme-toggle" />
+          <span>Dark</span>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <div id="site-banner-stack" class="site-banner-stack"></div>
+  <div id="toast-stack" class="toast-stack"></div>
+
+  <main>
+    <section class="section-block ebook-page" data-ebook-slug="{{ ebook_slug }}">
+      <div id="ebook-status" class="ebook-status">Loading ebook details…</div>
+
+      <div class="ebook-layout">
+        <aside class="ebook-cover-panel">
+          <div id="ebook-cover" class="ebook-cover-large">Cover</div>
+          <button id="favorite-btn" class="icon-btn" type="button">♡ Add to favorites</button>
+          <p id="favorite-note" class="muted-text"></p>
+        </aside>
+
+        <article>
+          <div class="ebook-heading">
+            <h1 id="ebook-title">Ebook</h1>
+            <p id="ebook-author" class="muted-text"></p>
+            <p id="ebook-meta" class="muted-text"></p>
+            <p id="ebook-rating" class="ebook-rating"></p>
+          </div>
+
+          <section class="section-mini">
+            <h3>Summary</h3>
+            <p id="ebook-description">-</p>
+          </section>
+
+          <section class="section-mini collapsible" data-collapsible>
+            <button class="collapse-toggle" type="button">Preview <span>▾</span></button>
+            <div class="collapse-content open">
+              <p id="preview-summary" class="muted-text"></p>
+              <ul id="file-list" class="file-list"></ul>
+            </div>
+          </section>
+
+          <section class="section-mini">
+            <h3>Unlock download with code</h3>
+            <form id="code-unlock-form" class="compact-form stacked-mobile">
+              <input name="code_value" type="text" placeholder="Enter access code" required />
+              <button type="submit">Validate code</button>
+            </form>
+            <div id="download-feedback" class="muted-text"></div>
+            <div id="download-progress" class="download-progress" aria-hidden="true"><i></i></div>
+            <div id="download-links" class="download-links"></div>
+          </section>
+        </article>
+      </div>
+
+      <section id="reviews-section" class="section-mini collapsible" data-collapsible>
+        <button class="collapse-toggle" type="button">Reviews <span>▾</span></button>
+        <div class="collapse-content open">
+          <form id="review-form" class="review-form">
+            <label>
+              Rating
+              <select name="rating" required>
+                <option value="">Select</option>
+                <option value="5">5 ★</option>
+                <option value="4">4 ★</option>
+                <option value="3">3 ★</option>
+                <option value="2">2 ★</option>
+                <option value="1">1 ★</option>
+              </select>
+            </label>
+            <textarea name="review_text" rows="3" placeholder="Share your thoughts"></textarea>
+            <button type="submit">Post review</button>
+          </form>
+
+          <div id="reviews-list-page" class="reviews-list"></div>
+          <button id="load-more-reviews" class="icon-btn" type="button">Load more reviews</button>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-grid">
+      <section>
+        <h4>Quick links</h4>
+        <a href="/">Home</a>
+        <a href="/categories">Categories</a>
+        <a href="/profile">Profile</a>
+        <a href="/download-access">Download access</a>
+      </section>
+      <section>
+        <h4>Support</h4>
+        <a href="mailto:support@ebookstore.local">support@ebookstore.local</a>
+        <a href="/contact">Support form</a>
+        <div class="social-links">
+          <a href="#" aria-label="X">𝕏</a>
+          <a href="#" aria-label="Facebook">f</a>
+          <a href="#" aria-label="LinkedIn">in</a>
+        </div>
+      </section>
+      <section>
+        <h4>Legal</h4>
+        <a href="/about">About</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <label class="theme-toggle footer-theme-toggle"><input type="checkbox" id="footer-theme-toggle" /><span>Dark mode</span></label>
+      </section>
+    </div>
+  </footer>
+  <button id="scroll-top-btn" class="scroll-top-btn" type="button" aria-label="Scroll to top">↑</button>
+
+  <script src="/static/theme.js"></script>
+  <script src="/static/notifications.js"></script>
+  <script src="/static/ebook.js"></script>
+  <script src="/static/footer.js"></script>
+</body>
+</html>

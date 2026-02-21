@@ -1,0 +1,167 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-row">
+      <a class="logo" href="/">📚 EbookStore</a>
+      <button id="menu-toggle" class="icon-btn" aria-label="Toggle navigation">☰</button>
+      <nav id="main-nav" class="main-nav">
+        <a href="/">Home</a>
+        <a href="#overview-panel">Overview</a>
+        <a href="#audit-panel">Audit logs</a>
+      </nav>
+      <div class="header-actions">
+        <label class="theme-toggle">
+          <input type="checkbox" id="theme-toggle" />
+          <span>Dark</span>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <div id="site-banner-stack" class="site-banner-stack"></div>
+  <div id="toast-stack" class="toast-stack"></div>
+
+  <main class="admin-layout">
+    <aside id="admin-sidebar" class="admin-sidebar">
+      <button class="sidebar-link active" data-panel="overview-panel" type="button">Overview</button>
+      <button class="sidebar-link" data-panel="ebooks-panel" type="button">Ebooks</button>
+      <button class="sidebar-link" data-panel="codes-panel" type="button">Codes</button>
+      <button class="sidebar-link" data-panel="users-panel" type="button">Users</button>
+      <button class="sidebar-link" data-panel="reports-panel" type="button">Reports & exports</button>
+      <button class="sidebar-link" data-panel="audit-panel" type="button">Audit logs</button>
+      <button class="sidebar-link" data-panel="maintenance-panel" type="button">Maintenance</button>
+    </aside>
+
+    <section class="admin-content">
+      <section id="overview-panel" class="admin-panel active">
+        <h1>Admin Control Center</h1>
+        <div id="overview-stats" class="stats-grid"></div>
+        <div class="charts-grid">
+          <article class="section-mini">
+            <h3>Downloads trend</h3>
+            <div id="line-chart" class="chart-bars"></div>
+          </article>
+          <article class="section-mini">
+            <h3>Top ebooks</h3>
+            <div id="bar-chart" class="chart-bars"></div>
+          </article>
+          <article class="section-mini">
+            <h3>Code status</h3>
+            <div id="pie-chart" class="pie-chart"></div>
+          </article>
+        </div>
+        <article class="section-mini">
+          <h3>Recent activity feed</h3>
+          <div id="recent-activity" class="list-stack"></div>
+        </article>
+      </section>
+
+      <section id="ebooks-panel" class="admin-panel">
+        <h2>Ebook management</h2>
+        <form id="ebook-filter-form" class="compact-form stacked-mobile">
+          <input name="q" type="search" placeholder="Search title/author" />
+          <select name="featured">
+            <option value="">All</option>
+            <option value="true">Featured</option>
+          </select>
+          <button type="submit">Filter</button>
+        </form>
+        <div id="ebooks-list" class="list-stack"></div>
+      </section>
+
+      <section id="codes-panel" class="admin-panel">
+        <h2>Code management</h2>
+        <form id="generate-code-form" class="compact-form stacked-mobile">
+          <input name="ebook_id" type="number" min="1" placeholder="Ebook ID" required />
+          <input name="expires_minutes" type="number" min="1" placeholder="Expiry (minutes)" required />
+          <button type="submit">Generate code</button>
+        </form>
+        <div id="codes-list" class="list-stack"></div>
+      </section>
+
+      <section id="users-panel" class="admin-panel">
+        <h2>User management</h2>
+        <div id="users-list" class="list-stack"></div>
+      </section>
+
+      <section id="reports-panel" class="admin-panel">
+        <h2>Reports & exports</h2>
+        <div class="inline-actions">
+          <a class="download-link" href="/admin/exports/downloads.csv">Export downloads CSV</a>
+          <a class="download-link" href="/admin/exports/code-usage.csv">Export code usage CSV</a>
+          <a class="download-link" href="/admin/exports/user-activity.csv">Export user activity CSV</a>
+        </div>
+        <article class="section-mini">
+          <h3>Summary</h3>
+          <pre id="summary-output"></pre>
+        </article>
+      </section>
+
+      <section id="audit-panel" class="admin-panel">
+        <h2>Audit logs</h2>
+        <div id="audit-list" class="list-stack"></div>
+      </section>
+
+      <section id="maintenance-panel" class="admin-panel">
+        <h2>Maintenance & controls</h2>
+        <form id="maintenance-form" class="section-mini">
+          <label><input type="checkbox" name="enabled" /> Enable maintenance mode</label>
+          <label><input type="checkbox" name="disable_downloads" /> Disable downloads</label>
+          <label><input type="checkbox" name="disable_code_entry" /> Disable code entry</label>
+          <input type="text" name="message" placeholder="Maintenance message" />
+          <button type="submit">Apply maintenance settings</button>
+        </form>
+        <form id="notification-form" class="section-mini">
+          <h3>Site-wide notification</h3>
+          <input type="text" name="message" placeholder="Message shown in top banners" required />
+          <button type="submit">Publish notification</button>
+        </form>
+        <div id="notification-list" class="list-stack"></div>
+        <pre id="admin-output"></pre>
+      </section>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-grid">
+      <section>
+        <h4>Quick links</h4>
+        <a href="/">Home</a>
+        <a href="/categories">Categories</a>
+        <a href="/profile">Profile</a>
+        <a href="/download-access">Download access</a>
+      </section>
+      <section>
+        <h4>Support</h4>
+        <a href="mailto:support@ebookstore.local">support@ebookstore.local</a>
+        <a href="/contact">Support form</a>
+        <div class="social-links">
+          <a href="#" aria-label="X">𝕏</a>
+          <a href="#" aria-label="Facebook">f</a>
+          <a href="#" aria-label="LinkedIn">in</a>
+        </div>
+      </section>
+      <section>
+        <h4>Legal</h4>
+        <a href="/about">About</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <label class="theme-toggle footer-theme-toggle"><input type="checkbox" id="footer-theme-toggle" /><span>Dark mode</span></label>
+      </section>
+    </div>
+  </footer>
+  <button id="scroll-top-btn" class="scroll-top-btn" type="button" aria-label="Scroll to top">↑</button>
+
+  <script src="/static/theme.js"></script>
+  <script src="/static/notifications.js"></script>
+  <script src="/static/admin.js"></script>
+  <script src="/static/footer.js"></script>
+</body>
+</html>
