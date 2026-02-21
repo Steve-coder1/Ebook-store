@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login | EbookStore</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-row">
+      <a class="logo" href="/">📚 EbookStore</a>
+      <nav id="main-nav" class="main-nav">
+        <a href="/">Home</a>
+        <a href="/download-access">Download access</a>
+      </nav>
+      <div class="header-actions">
+        <label class="theme-toggle"><input type="checkbox" id="theme-toggle" /><span>Dark</span></label>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="section-block code-entry-page">
+      <h1>Login</h1>
+      <form id="user-login-form" class="section-mini code-entry-form">
+        <h3>User login</h3>
+        <input name="email" type="email" placeholder="Email" required />
+        <input name="password" type="password" placeholder="Password" required />
+        <label id="captcha-label"></label>
+        <input name="captcha_answer" type="text" placeholder="Captcha answer" required />
+        <button type="submit">Login</button>
+      </form>
+
+      <form id="admin-login-form" class="section-mini code-entry-form">
+        <h3>Admin login</h3>
+        <input name="email" type="email" placeholder="Admin email" required />
+        <input name="password" type="password" placeholder="Admin password" required />
+        <button type="submit">Login as admin</button>
+      </form>
+
+      <pre id="login-output"></pre>
+    </section>
+  </main>
+
+  <script src="/static/theme.js"></script>
+  <script src="/static/login.js"></script>
+</body>
+</html>

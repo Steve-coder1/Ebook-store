@@ -1,0 +1,195 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ebook Store Auth</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-row">
+      <a class="logo" href="#top">📚 EbookStore</a>
+      <button id="menu-toggle" class="icon-btn" aria-label="Toggle navigation">☰</button>
+      <nav id="main-nav" class="main-nav">
+        <a href="#top">Home</a>
+        <a href="#categories-section">Categories</a>
+        <a href="/profile">Profile</a>
+      </nav>
+      <div class="header-actions">
+        <label class="theme-toggle">
+          <input type="checkbox" id="theme-toggle" />
+          <span>Dark</span>
+        </label>
+        <div class="user-menu-wrap">
+          <button id="user-menu-btn" class="icon-btn">User ▾</button>
+          <div id="user-menu" class="user-menu">
+            <a href="/profile">My profile</a>
+            <button id="logout-btn" type="button">Logout</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="utility-row" class="utility-row">
+      <form id="search-form" class="compact-form">
+        <input name="q" id="search-input" type="search" placeholder="Search ebooks, author, keywords..." />
+        <button type="submit">Search</button>
+      </form>
+      <form id="code-form" class="compact-form">
+        <input name="code_value" type="text" placeholder="Enter access code" required />
+        <button type="submit">Unlock</button>
+      </form>
+    </div>
+  </header>
+
+  <div id="site-banner-stack" class="site-banner-stack"></div>
+  <div id="toast-stack" class="toast-stack"></div>
+
+  <main id="top">
+    <section class="hero" id="hero-section">
+      <div class="hero-carousel">
+        <article class="hero-slide active" data-slide>
+          <p class="badge">New Release</p>
+          <h1>Discover your next favorite ebook</h1>
+          <p>Explore hand-picked collections, top downloads, and fresh launches.</p>
+          <a class="hero-link" href="#featured-section">Browse featured →</a>
+        </article>
+        <article class="hero-slide" data-slide>
+          <p class="badge">Top Downloads</p>
+          <h1>Most downloaded this week</h1>
+          <p>See what readers are unlocking right now.</p>
+          <a class="hero-link" href="#featured-section">See top books →</a>
+        </article>
+        <article class="hero-slide" data-slide>
+          <p class="badge">Featured Collection</p>
+          <h1>Curated picks for every mood</h1>
+          <p>From fiction to productivity, quickly jump into categories.</p>
+          <a class="hero-link" href="#categories-section">Explore categories →</a>
+        </article>
+      </div>
+      <div class="hero-dots" id="hero-dots"></div>
+    </section>
+
+    <section id="code-cta" class="code-cta">
+      <h2>Have a download code?</h2>
+      <p>Enter your code above in the header to unlock your ebook instantly.</p>
+      <a class="hero-link" href="#top">Go to code entry ↑</a>
+    </section>
+
+    <section id="featured-section" class="section-block">
+      <h2>Featured ebooks</h2>
+      <div id="featured-grid" class="featured-grid"></div>
+    </section>
+
+    <section id="categories-section" class="section-block">
+      <h2>Browse categories</h2>
+      <div id="categories-grid" class="categories-grid"></div>
+    </section>
+
+    <section id="catalog-section" class="section-block">
+      <div class="catalog-header">
+        <h2>Ebook catalog</h2>
+        <div class="catalog-actions">
+          <button id="filter-toggle" type="button" class="icon-btn">Filters ▾</button>
+          <label class="view-switch">
+            <span>List view</span>
+            <input type="checkbox" id="list-view-toggle" />
+          </label>
+        </div>
+      </div>
+
+      <form id="catalog-search-form" class="catalog-search">
+        <input id="catalog-search-input" type="search" placeholder="Search title, author, description..." />
+        <button type="submit">Search catalog</button>
+      </form>
+
+      <div id="catalog-filters" class="catalog-filters">
+        <select id="filter-category">
+          <option value="">All categories</option>
+        </select>
+        <input id="filter-author" type="text" placeholder="Author" />
+        <select id="filter-rating">
+          <option value="">Any rating</option>
+          <option value="4">4★ and up</option>
+          <option value="3">3★ and up</option>
+          <option value="2">2★ and up</option>
+        </select>
+        <select id="filter-featured">
+          <option value="">All books</option>
+          <option value="true">Featured only</option>
+        </select>
+        <select id="filter-sort">
+          <option value="newest">Newest</option>
+          <option value="most_downloaded">Most downloaded</option>
+          <option value="highest_rated">Highest rated</option>
+          <option value="alphabetical">Alphabetical</option>
+        </select>
+      </div>
+
+      <div id="catalog-grid" class="catalog-grid"></div>
+      <div id="catalog-pagination" class="catalog-pagination"></div>
+    </section>
+
+    <section id="latest-reviews" class="section-block">
+      <h2>Latest reviews</h2>
+      <div id="reviews-list" class="reviews-list"></div>
+    </section>
+
+    <section id="profile-anchor" class="section-block auth-section">
+      <h2>User Authentication</h2>
+      <form id="register-form">
+        <h3>Register</h3>
+        <input name="email" type="email" placeholder="Email" required>
+        <input name="password" type="password" placeholder="Password" required>
+        <button type="submit">Create account</button>
+      </form>
+
+      <form id="login-form">
+        <h3>Login</h3>
+        <input name="email" type="email" placeholder="Email" required>
+        <input name="password" type="password" placeholder="Password" required>
+        <label id="captcha-label"></label>
+        <input name="captcha_answer" type="text" placeholder="Captcha answer" required>
+        <button type="submit">Login</button>
+      </form>
+
+      <pre id="output"></pre>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-grid">
+      <section>
+        <h4>Quick links</h4>
+        <a href="/">Home</a>
+        <a href="/categories">Categories</a>
+        <a href="/profile">Profile</a>
+        <a href="/download-access">Download access</a>
+      </section>
+      <section>
+        <h4>Support</h4>
+        <a href="mailto:support@ebookstore.local">support@ebookstore.local</a>
+        <a href="/contact">Support form</a>
+        <div class="social-links">
+          <a href="#" aria-label="X">𝕏</a>
+          <a href="#" aria-label="Facebook">f</a>
+          <a href="#" aria-label="LinkedIn">in</a>
+        </div>
+      </section>
+      <section>
+        <h4>Legal</h4>
+        <a href="/about">About</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <label class="theme-toggle footer-theme-toggle"><input type="checkbox" id="footer-theme-toggle" /><span>Dark mode</span></label>
+      </section>
+    </div>
+  </footer>
+  <button id="scroll-top-btn" class="scroll-top-btn" type="button" aria-label="Scroll to top">↑</button>
+
+  <script src="/static/theme.js"></script>
+  <script src="/static/notifications.js"></script>
+  <script src="/static/auth.js"></script>
+  <script src="/static/footer.js"></script>
+</body>
+</html>
