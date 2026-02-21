@@ -1,5 +1,7 @@
+import io
 import os
 import secrets
+import zipfile
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
@@ -130,6 +132,44 @@ class DownloadEvent(db.Model):
     downloaded_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
 
 
+class DownloadSession(db.Model):
+    __tablename__ = "download_sessions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    code_id = db.Column(db.Integer, db.ForeignKey("codes.id"), nullable=False, index=True)
+    ebook_id = db.Column(db.Integer, db.ForeignKey("ebooks.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    ip_address = db.Column(db.String(64), nullable=False, index=True)
+    device_info = db.Column(db.String(512), nullable=True)
+    access_token = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    expires_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+class DownloadAttemptLog(db.Model):
+    __tablename__ = "download_attempt_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    download_session_id = db.Column(db.Integer, db.ForeignKey("download_sessions.id"), nullable=False, index=True)
+    file_id = db.Column(db.Integer, db.ForeignKey("ebook_files.id"), nullable=True, index=True)
+    ip_address = db.Column(db.String(64), nullable=False, index=True)
+    attempted_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    was_successful = db.Column(db.Boolean, nullable=False, default=False)
+    download_completed = db.Column(db.Boolean, nullable=False, default=False)
+    error_reason = db.Column(db.String(255), nullable=True)
+
+
+class DownloadTokenUse(db.Model):
+    __tablename__ = "download_token_uses"
+
+    id = db.Column(db.Integer, primary_key=True)
+    token_jti = db.Column(db.String(128), nullable=False, unique=True, index=True)
+    download_session_id = db.Column(db.Integer, db.ForeignKey("download_sessions.id"), nullable=False, index=True)
+    file_id = db.Column(db.Integer, db.ForeignKey("ebook_files.id"), nullable=True, index=True)
+    used_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+
+
 class AccessCode(db.Model):
     __tablename__ = "codes"
 
@@ -182,6 +222,7 @@ def create_app():
     app.config["CODE_ATTEMPT_WINDOW_MINUTES"] = int(os.getenv("CODE_ATTEMPT_WINDOW_MINUTES", "15"))
     app.config["CODE_ATTEMPT_MAX"] = int(os.getenv("CODE_ATTEMPT_MAX", "8"))
     app.config["CODE_CAPTCHA_THRESHOLD"] = int(os.getenv("CODE_CAPTCHA_THRESHOLD", "3"))
+    app.config["DOWNLOAD_SESSION_TTL_MINUTES"] = int(os.getenv("DOWNLOAD_SESSION_TTL_MINUTES", "15"))
 
     project_root = Path(__file__).resolve().parent
     storage_root = Path(os.getenv("PRIVATE_STORAGE_ROOT", project_root / "private_storage")).resolve()
@@ -371,6 +412,59 @@ def create_app():
                 session_key=code_attempt_session_key(),
                 ip_address=get_client_ip(),
                 successful=success,
+            )
+        )
+        db.session.commit()
+
+
+    def create_download_session(code, user):
+        session = DownloadSession(
+            code_id=code.id,
+            ebook_id=code.ebook_id,
+            user_id=user.id if user else None,
+            ip_address=get_client_ip(),
+            device_info=request.user_agent.string,
+            access_token=secrets.token_urlsafe(32),
+            expires_at=utcnow() + timedelta(minutes=app.config["DOWNLOAD_SESSION_TTL_MINUTES"]),
+            is_active=True,
+        )
+        db.session.add(session)
+        db.session.commit()
+        return session
+
+    def build_code_download_token(download_session_id, file_id=None, bundle=False):
+        jti = secrets.token_urlsafe(12)
+        token = code_serializer.dumps(
+            {
+                "download_session_id": download_session_id,
+                "file_id": file_id,
+                "bundle": bundle,
+                "jti": jti,
+            }
+        )
+        return token
+
+    def get_valid_download_session(session_id):
+        session = DownloadSession.query.get(session_id)
+        if not session or not session.is_active:
+            return None, "download_session_invalid"
+        if session.expires_at < utcnow():
+            session.is_active = False
+            db.session.commit()
+            return None, "download_session_expired"
+        if session.ip_address != get_client_ip():
+            return None, "ip_mismatch"
+        return session, None
+
+    def log_download_attempt(session_id, file_id=None, success=False, completed=False, reason=None):
+        db.session.add(
+            DownloadAttemptLog(
+                download_session_id=session_id,
+                file_id=file_id,
+                ip_address=get_client_ip(),
+                was_successful=success,
+                download_completed=completed,
+                error_reason=reason,
             )
         )
         db.session.commit()
@@ -858,7 +952,7 @@ def create_app():
     @app.post("/codes/validate")
     def validate_code():
         if code_attempts_exceeded():
-            return jsonify({"error": "Too many code attempts. Please try again later."}), 429
+            return jsonify({"error": "Too many code attempts. Please try again later.", "retry_available": True}), 429
 
         data = as_data()
         code_value = (data.get("code_value") or "").strip().upper()
@@ -867,19 +961,20 @@ def create_app():
 
         if not code_value:
             record_code_attempt(False)
-            return jsonify({"error": "Code is required."}), 400
+            return jsonify({"error": "Code is required.", "retry_available": True}), 400
 
         if code_captcha_required() and (not captcha_answer or captcha_answer != captcha_token):
             record_code_attempt(False)
-            return jsonify({"error": "Captcha required after repeated failures."}), 400
+            return jsonify({"error": "Captcha required after repeated failures.", "retry_available": True}), 400
 
+        user = get_optional_user()
         code = AccessCode.query.filter_by(code_value=code_value).first()
         if not code:
             record_code_attempt(False)
             db.session.add(
                 CodeUsageLog(
                     code_id=None,
-                    user_id=get_optional_user().id if get_optional_user() else None,
+                    user_id=user.id if user else None,
                     ip_address=get_client_ip(),
                     device_info=request.user_agent.string,
                     was_successful=False,
@@ -887,14 +982,14 @@ def create_app():
                 )
             )
             db.session.commit()
-            return jsonify({"error": "Code not found."}), 404
+            return jsonify({"error": "Code not found.", "retry_available": True}), 404
 
         if not code.is_active:
             record_code_attempt(False)
             db.session.add(
                 CodeUsageLog(
                     code_id=code.id,
-                    user_id=get_optional_user().id if get_optional_user() else None,
+                    user_id=user.id if user else None,
                     ip_address=get_client_ip(),
                     device_info=request.user_agent.string,
                     was_successful=False,
@@ -902,14 +997,14 @@ def create_app():
                 )
             )
             db.session.commit()
-            return jsonify({"error": "Code has been deactivated."}), 400
+            return jsonify({"error": "Code has been deactivated.", "retry_available": True}), 400
 
         if code.expires_at < utcnow():
             record_code_attempt(False)
             db.session.add(
                 CodeUsageLog(
                     code_id=code.id,
-                    user_id=get_optional_user().id if get_optional_user() else None,
+                    user_id=user.id if user else None,
                     ip_address=get_client_ip(),
                     device_info=request.user_agent.string,
                     was_successful=False,
@@ -917,14 +1012,14 @@ def create_app():
                 )
             )
             db.session.commit()
-            return jsonify({"error": "Code has expired."}), 400
+            return jsonify({"error": "Code has expired.", "retry_available": True}), 400
 
         if code.is_used:
             record_code_attempt(False)
             db.session.add(
                 CodeUsageLog(
                     code_id=code.id,
-                    user_id=get_optional_user().id if get_optional_user() else None,
+                    user_id=user.id if user else None,
                     ip_address=get_client_ip(),
                     device_info=request.user_agent.string,
                     was_successful=False,
@@ -932,7 +1027,7 @@ def create_app():
                 )
             )
             db.session.commit()
-            return jsonify({"error": "Code was already used."}), 400
+            return jsonify({"error": "Code was already used.", "retry_available": True}), 400
 
         ebook = Ebook.query.get(code.ebook_id)
         if not ebook or not ebook.is_active:
@@ -940,7 +1035,7 @@ def create_app():
             db.session.add(
                 CodeUsageLog(
                     code_id=code.id,
-                    user_id=get_optional_user().id if get_optional_user() else None,
+                    user_id=user.id if user else None,
                     ip_address=get_client_ip(),
                     device_info=request.user_agent.string,
                     was_successful=False,
@@ -948,15 +1043,15 @@ def create_app():
                 )
             )
             db.session.commit()
-            return jsonify({"error": "Ebook unavailable for this code."}), 400
+            return jsonify({"error": "Ebook unavailable for this code.", "retry_available": True}), 400
 
-        first_file = EbookFile.query.filter_by(ebook_id=ebook.id).order_by(EbookFile.created_at.desc()).first()
-        if not first_file:
+        files = EbookFile.query.filter_by(ebook_id=ebook.id).order_by(EbookFile.created_at.desc()).all()
+        if not files:
             record_code_attempt(False)
             db.session.add(
                 CodeUsageLog(
                     code_id=code.id,
-                    user_id=get_optional_user().id if get_optional_user() else None,
+                    user_id=user.id if user else None,
                     ip_address=get_client_ip(),
                     device_info=request.user_agent.string,
                     was_successful=False,
@@ -964,10 +1059,9 @@ def create_app():
                 )
             )
             db.session.commit()
-            return jsonify({"error": "No downloadable files available for this ebook."}), 400
+            return jsonify({"error": "No downloadable files available for this ebook.", "retry_available": True}), 400
 
         code.is_used = True
-        user = get_optional_user()
         usage = CodeUsageLog(
             code_id=code.id,
             user_id=user.id if user else None,
@@ -980,22 +1074,32 @@ def create_app():
         db.session.commit()
         record_code_attempt(True)
 
-        token = code_serializer.dumps(
+        download_session = create_download_session(code, user)
+        file_links = [
             {
-                "code_id": code.id,
-                "ebook_id": ebook.id,
-                "file_id": first_file.id,
-                "usage_log_id": usage.id,
-                "uid": user.id if user else None,
+                "file_id": f.id,
+                "file_name": f.file_name,
+                "file_size": f.file_size,
+                "download_url": f"/download/code/{build_code_download_token(download_session.id, file_id=f.id)}",
             }
-        )
+            for f in files
+        ]
+        bundle_url = f"/download/code/bundle/{build_code_download_token(download_session.id, bundle=True)}"
+
         return jsonify(
             {
-                "message": "Code valid.",
-                "download_url": f"/download/code/{token}",
-                "expires_in_seconds": app.config["CODE_TOKEN_TTL_SECONDS"],
+                "message": "Code accepted.",
+                "confirmation": "Code accepted, choose a file to start download.",
+                "download_session": {
+                    "id": download_session.id,
+                    "expires_at": download_session.expires_at.isoformat(),
+                    "expires_in_seconds": app.config["DOWNLOAD_SESSION_TTL_MINUTES"] * 60,
+                },
                 "ebook_id": ebook.id,
-                "file_id": first_file.id,
+                "usage_log_id": usage.id,
+                "files": file_links,
+                "bundle_download_url": bundle_url,
+                "home_url": "/",
             }
         )
 
@@ -1004,24 +1108,71 @@ def create_app():
         try:
             payload = code_serializer.loads(token, max_age=app.config["CODE_TOKEN_TTL_SECONDS"])
         except BadSignature:
-            return jsonify({"error": "Invalid or expired code download token"}), 400
+            return jsonify({"error": "Invalid or expired code download token", "retry_available": True}), 400
 
-        usage = CodeUsageLog.query.get(payload.get("usage_log_id"))
-        code = AccessCode.query.get(payload.get("code_id"))
-        file_item = EbookFile.query.filter_by(id=payload.get("file_id"), ebook_id=payload.get("ebook_id")).first()
-        if not usage or not code or not file_item:
-            return jsonify({"error": "Download data invalid"}), 400
+        jti = payload.get("jti")
+        if DownloadTokenUse.query.filter_by(token_jti=jti).first():
+            return jsonify({"error": "This download link was already used.", "retry_available": True}), 400
+
+        session, error = get_valid_download_session(payload.get("download_session_id"))
+        if not session:
+            return jsonify({"error": f"Download session invalid: {error}", "retry_available": True}), 400
+
+        file_item = EbookFile.query.filter_by(id=payload.get("file_id"), ebook_id=session.ebook_id).first()
+        if not file_item:
+            log_download_attempt(session.id, file_id=payload.get("file_id"), reason="file_not_found")
+            return jsonify({"error": "File not found for this session.", "retry_available": True}), 404
 
         file_path = Path(file_item.file_path)
         if not file_path.exists():
-            return jsonify({"error": "File unavailable"}), 404
+            log_download_attempt(session.id, file_id=file_item.id, reason="file_unavailable")
+            return jsonify({"error": "File unavailable", "retry_available": True}), 404
 
-        usage.download_completed = True
-        if usage.user_id:
-            db.session.add(DownloadEvent(user_id=usage.user_id, ebook_id=code.ebook_id, ebook_file_id=file_item.id))
+        db.session.add(DownloadTokenUse(token_jti=jti, download_session_id=session.id, file_id=file_item.id))
+        log_download_attempt(session.id, file_id=file_item.id, success=True, completed=True)
+        if session.user_id:
+            db.session.add(DownloadEvent(user_id=session.user_id, ebook_id=session.ebook_id, ebook_file_id=file_item.id))
         db.session.commit()
         return send_file(file_path, as_attachment=True, download_name=file_item.file_name)
 
+    @app.get("/download/code/bundle/<token>")
+    def download_bundle_by_code(token):
+        try:
+            payload = code_serializer.loads(token, max_age=app.config["CODE_TOKEN_TTL_SECONDS"])
+        except BadSignature:
+            return jsonify({"error": "Invalid or expired bundle token", "retry_available": True}), 400
+
+        if not payload.get("bundle"):
+            return jsonify({"error": "Invalid bundle request", "retry_available": True}), 400
+
+        jti = payload.get("jti")
+        if DownloadTokenUse.query.filter_by(token_jti=jti).first():
+            return jsonify({"error": "This bundle link was already used.", "retry_available": True}), 400
+
+        session, error = get_valid_download_session(payload.get("download_session_id"))
+        if not session:
+            return jsonify({"error": f"Download session invalid: {error}", "retry_available": True}), 400
+
+        files = EbookFile.query.filter_by(ebook_id=session.ebook_id).all()
+        if not files:
+            log_download_attempt(session.id, reason="bundle_files_missing")
+            return jsonify({"error": "No files available to bundle.", "retry_available": True}), 404
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file_item in files:
+                path = Path(file_item.file_path)
+                if path.exists():
+                    zf.write(path, arcname=file_item.file_name)
+                else:
+                    log_download_attempt(session.id, file_id=file_item.id, reason="file_missing_in_bundle")
+        zip_buffer.seek(0)
+
+        db.session.add(DownloadTokenUse(token_jti=jti, download_session_id=session.id, file_id=None))
+        log_download_attempt(session.id, file_id=None, success=True, completed=True)
+        db.session.commit()
+        filename = f"ebook-{session.ebook_id}-bundle.zip"
+        return send_file(zip_buffer, as_attachment=True, download_name=filename, mimetype="application/zip")
     @app.post("/admin/codes/generate")
     @require_auth(role="admin")
     def admin_generate_code():
@@ -1132,6 +1283,43 @@ def create_app():
                 }
                 for row in rows
             ]
+        )
+
+    @app.get("/downloads/history")
+    @require_auth()
+    def download_history():
+        rows = DownloadEvent.query.filter_by(user_id=request.current_user.id).order_by(DownloadEvent.downloaded_at.desc()).limit(200).all()
+        return jsonify(
+            [
+                {
+                    "ebook_id": row.ebook_id,
+                    "file_id": row.ebook_file_id,
+                    "downloaded_at": row.downloaded_at.isoformat(),
+                }
+                for row in rows
+            ]
+        )
+
+    @app.get("/admin/download-failure-alerts")
+    @require_auth(role="admin")
+    def download_failure_alerts():
+        window_start = utcnow() - timedelta(hours=24)
+        total = DownloadAttemptLog.query.filter(DownloadAttemptLog.attempted_at >= window_start).count()
+        failures = DownloadAttemptLog.query.filter(
+            DownloadAttemptLog.attempted_at >= window_start,
+            DownloadAttemptLog.was_successful.is_(False),
+        ).count()
+        failure_rate = (failures / total) if total else 0
+        alert = failure_rate >= 0.3 and failures >= 10
+        return jsonify(
+            {
+                "window": "24h",
+                "total_attempts": total,
+                "failed_attempts": failures,
+                "failure_rate": round(failure_rate, 3),
+                "alert": alert,
+                "message": "Failure spike detected" if alert else "Failure rate normal",
+            }
         )
 
     @app.get("/admin/download-counts")

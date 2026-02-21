@@ -1,9 +1,10 @@
-# Ebook Store - Systems 1, 2 & 3
+# Ebook Store - Systems 1, 2, 3 & 4
 
 Flask backend implementing:
 - **System 1**: authentication (users/admin), sessions, password reset, login protections.
 - **System 2**: ebook content engine (categories, ebooks, files, versions, favorites, preview, secure downloads).
 - **System 3**: code-key gatekeeper (single-use code generation, validation, expiry, usage logging, and brute-force controls).
+- **System 4**: controlled secure download delivery sessions (temporary links, multi-file handling, and delivery analytics).
 
 ## Implemented capabilities
 
@@ -37,20 +38,21 @@ Flask backend implementing:
 - Code model (`codes`) with single-use, expiry, ebook linkage, and admin creator tracking
 - Code usage model (`code_usage_logs`) with user (nullable), IP, device, usage timestamp, download completion state, and failure reason
 - Code brute-force model (`code_attempts`) for failed-attempt tracking
-- Code validation flow with:
-  - existence check
-  - expiration check
-  - single-use check
-  - deactivation check
-  - rate-limit check (IP + session)
-  - optional captcha requirement after repeated failures
-- Short-lived secure download tokens specifically for validated code sessions
-- Admin controls:
-  - generate individual codes with custom expiry window
-  - deactivate code manually
-  - list codes
-  - usage-log filtering by ebook/date range
-  - failed-attempt visibility
+- Code validation flow with existence, expiration, single-use, and deactivation checks
+- Rate-limit checks (IP + session) with optional captcha requirement after repeated failures
+- Admin controls to generate/deactivate/list codes and inspect usage + failures
+
+### Secure Download Delivery (System 4)
+- Download session model (`download_sessions`) created after successful code validation
+- Session links code + ebook + user(optional) + IP + device metadata + auto expiry window
+- File links are signed short-lived tokens tied to download session + file + one-time token JTI
+- One-time token use ledger (`download_token_uses`) prevents link reuse
+- Multi-file handling:
+  - per-file secure links in validation response
+  - optional bundle ZIP endpoint with expiring link (`/download/code/bundle/<token>`)
+- Attempt/result tracking (`download_attempt_logs`) with success/failure reason and completion status
+- Download history endpoint for authenticated users (`/downloads/history`)
+- Admin failure-rate alert endpoint for spike detection (`/admin/download-failure-alerts`)
 
 ## Database tables
 - `users`
@@ -66,6 +68,9 @@ Flask backend implementing:
 - `codes`
 - `code_usage_logs`
 - `code_attempts`
+- `download_sessions`
+- `download_attempt_logs`
+- `download_token_uses`
 
 ## Run
 ```bash
@@ -82,6 +87,6 @@ Open:
 ## Security notes
 - Ebook and preview files are stored in `PRIVATE_STORAGE_ROOT` (default `./private_storage`) and are not served as static files.
 - User-auth downloads use signed short-lived tokens (`/ebooks/<ebook_id>/download-link/<file_id>` -> `/download/<token>`).
-- Code-based downloads use signed short-lived code tokens (`/codes/validate` -> `/download/code/<token>`).
+- Code-validation returns session-scoped file links and optional bundle links (`/download/code/<token>`, `/download/code/bundle/<token>`).
 - Set `SESSION_COOKIE_SECURE=true` in HTTPS deployments.
 - Configure a stable production `SECRET_KEY` and integrate a real email provider for password reset delivery.
