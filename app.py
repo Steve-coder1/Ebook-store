@@ -1,4 +1,6 @@
+import csv
 import io
+import json
 import os
 import secrets
 import zipfile
@@ -6,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, make_response, render_template, request, send_file
+from flask import Flask, Response, abort, jsonify, make_response, render_template, request, send_file
 from flask_sqlalchemy import SQLAlchemy
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from sqlalchemy import func
@@ -29,6 +31,7 @@ class User(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False, default="user")
     two_fa_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
 
@@ -242,6 +245,45 @@ class ReviewAttemptLog(db.Model):
     reason = db.Column(db.String(255), nullable=True)
 
 
+class SiteSetting(db.Model):
+    __tablename__ = "site_settings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(120), nullable=False, unique=True, index=True)
+    value = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class SiteNotification(db.Model):
+    __tablename__ = "site_notifications"
+
+    id = db.Column(db.Integer, primary_key=True)
+    message = db.Column(db.Text, nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_by_admin = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+class BackupJob(db.Model):
+    __tablename__ = "backup_jobs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    initiated_by_admin = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    backup_file = db.Column(db.String(500), nullable=False)
+    status = db.Column(db.String(50), nullable=False, default="completed")
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+class ErrorLog(db.Model):
+    __tablename__ = "error_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    source = db.Column(db.String(120), nullable=False, default="system")
+    severity = db.Column(db.String(20), nullable=False, default="error")
+    message = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+
+
 def create_app():
     app = Flask(__name__)
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///ebook_store.db")
@@ -272,6 +314,48 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+
+    def set_setting(key, value):
+        row = SiteSetting.query.filter_by(key=key).first()
+        if not row:
+            row = SiteSetting(key=key, value=str(value))
+            db.session.add(row)
+        else:
+            row.value = str(value)
+        db.session.commit()
+        return row
+
+    def get_setting(key, default=None):
+        row = SiteSetting.query.filter_by(key=key).first()
+        if not row:
+            return default
+        return row.value
+
+    def log_admin_action(admin_id, action):
+        db.session.add(
+            AuditLog(
+                admin_user_id=admin_id,
+                action=action,
+                ip_address=getattr(request, "remote_addr", None),
+                device_info=getattr(request, "user_agent", None).string if getattr(request, "user_agent", None) else None,
+            )
+        )
+        db.session.commit()
+
+    @app.before_request
+    def enforce_maintenance_mode():
+        if request.path.startswith("/static"):
+            return None
+        if request.path in ["/auth/login", "/admin/login", "/auth/captcha", "/codes/captcha"]:
+            return None
+        if get_setting("maintenance_mode", "false").lower() != "true":
+            return None
+        active_session = get_session_from_cookie()
+        if active_session:
+            user = User.query.get(active_session.user_id)
+            if user and user.role == "admin":
+                return None
+        return jsonify({"error": "Maintenance mode enabled", "notification": get_setting("site_notification", "")}), 503
 
     serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="ebook-download")
     code_serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="code-download")
@@ -348,6 +432,8 @@ def create_app():
                 user = User.query.get(active_session.user_id)
                 if not user:
                     return jsonify({"error": "User not found"}), 401
+                if not user.is_active:
+                    return jsonify({"error": "Account deactivated"}), 403
                 if role and user.role != role:
                     return jsonify({"error": "Forbidden"}), 403
                 request.current_user = user
@@ -589,6 +675,9 @@ def create_app():
         if not user or not check_password_hash(user.password_hash, password):
             record_login_attempt(email, False)
             return jsonify({"error": "Invalid credentials"}), 401
+        if not user.is_active:
+            record_login_attempt(email, False)
+            return jsonify({"error": "Account deactivated"}), 403
 
         token = issue_session(user)
         record_login_attempt(email, True)
@@ -714,6 +803,9 @@ def create_app():
         if not user or not check_password_hash(user.password_hash, password):
             record_login_attempt(email, False)
             return jsonify({"error": "Invalid admin credentials"}), 401
+        if not user.is_active:
+            record_login_attempt(email, False)
+            return jsonify({"error": "Account deactivated"}), 403
 
         token = issue_session(user)
         record_login_attempt(email, True)
@@ -808,6 +900,7 @@ def create_app():
         )
         db.session.add(ebook)
         db.session.commit()
+        log_admin_action(request.current_user.id, f"ebook_create:{ebook.id}")
         return jsonify(ebook_to_dict(ebook, include_files=True)), 201
 
     @app.post("/admin/ebooks/<int:ebook_id>/upload-file")
@@ -873,6 +966,7 @@ def create_app():
                 ebook.category_id = category.id
 
         db.session.commit()
+        log_admin_action(request.current_user.id, f"ebook_update:{ebook.id}")
         return jsonify(ebook_to_dict(ebook, include_files=True, include_stats=True))
 
     @app.delete("/admin/ebooks/<int:ebook_id>")
@@ -896,10 +990,12 @@ def create_app():
             Favorite.query.filter_by(ebook_id=ebook.id).delete()
             db.session.delete(ebook)
             db.session.commit()
+            log_admin_action(request.current_user.id, f"ebook_delete:{ebook.id}")
             return jsonify({"message": "ebook deleted"})
 
         ebook.is_active = False
         db.session.commit()
+        log_admin_action(request.current_user.id, f"ebook_deactivate:{ebook.id}")
         return jsonify({"message": "ebook deactivated"})
 
     @app.get("/ebooks")
@@ -1462,6 +1558,7 @@ def create_app():
         )
         db.session.add(code)
         db.session.commit()
+        log_admin_action(request.current_user.id, f"code_generate:{code.id}")
         return jsonify(
             {
                 "id": code.id,
@@ -1479,15 +1576,23 @@ def create_app():
         code = AccessCode.query.get_or_404(code_id)
         code.is_active = False
         db.session.commit()
+        log_admin_action(request.current_user.id, f"code_deactivate:{code.id}")
         return jsonify({"message": "Code deactivated"})
 
     @app.get("/admin/codes")
     @require_auth(role="admin")
     def admin_list_codes():
         ebook_id = request.args.get("ebook_id", type=int)
+        status = (request.args.get("status") or "").strip().lower()
         query = AccessCode.query
         if ebook_id:
             query = query.filter_by(ebook_id=ebook_id)
+        if status == "used":
+            query = query.filter(AccessCode.is_used.is_(True))
+        elif status == "active":
+            query = query.filter(AccessCode.is_active.is_(True), AccessCode.expires_at >= utcnow())
+        elif status == "expired":
+            query = query.filter(AccessCode.expires_at < utcnow())
         codes = query.order_by(AccessCode.created_at.desc()).all()
         return jsonify(
             [
@@ -1497,6 +1602,7 @@ def create_app():
                     "ebook_id": c.ebook_id,
                     "is_used": c.is_used,
                     "is_active": c.is_active,
+                    "is_expired": c.expires_at < utcnow(),
                     "expires_at": c.expires_at.isoformat(),
                     "created_at": c.created_at.isoformat(),
                     "created_by_admin": c.created_by_admin,
@@ -1504,6 +1610,15 @@ def create_app():
                 for c in codes
             ]
         )
+
+    @app.delete("/admin/codes/<int:code_id>")
+    @require_auth(role="admin")
+    def admin_delete_code(code_id):
+        code = AccessCode.query.get_or_404(code_id)
+        db.session.delete(code)
+        db.session.commit()
+        log_admin_action(request.current_user.id, f"code_delete:{code_id}")
+        return jsonify({"message": "Code deleted"})
 
     @app.get("/admin/codes/usage-logs")
     @require_auth(role="admin")
@@ -1628,6 +1743,329 @@ def create_app():
                 "failure_rate": round(failure_rate, 3),
                 "alert": alert,
                 "message": "Failure spike detected" if alert else "Failure rate normal",
+            }
+        )
+
+    @app.get("/admin/dashboard/overview")
+    @require_auth(role="admin")
+    def admin_dashboard_overview():
+        now = utcnow()
+        total_ebooks = Ebook.query.count()
+        total_active_codes = AccessCode.query.filter(AccessCode.is_active.is_(True), AccessCode.expires_at >= now).count()
+        used_codes = AccessCode.query.filter(AccessCode.is_used.is_(True)).count()
+        expired_codes = AccessCode.query.filter(AccessCode.expires_at < now).count()
+
+        day_start = now - timedelta(days=1)
+        week_start = now - timedelta(days=7)
+        total_downloads_daily = DownloadEvent.query.filter(DownloadEvent.downloaded_at >= day_start).count()
+        total_downloads_weekly = DownloadEvent.query.filter(DownloadEvent.downloaded_at >= week_start).count()
+        total_downloads_all_time = DownloadEvent.query.count()
+
+        top_ebook = (
+            db.session.query(DownloadEvent.ebook_id, func.count(DownloadEvent.id).label("cnt"))
+            .group_by(DownloadEvent.ebook_id)
+            .order_by(func.count(DownloadEvent.id).desc())
+            .first()
+        )
+        top_ebook_payload = None
+        if top_ebook:
+            eb = Ebook.query.get(top_ebook.ebook_id)
+            top_ebook_payload = {"ebook_id": top_ebook.ebook_id, "title": eb.title if eb else None, "downloads": int(top_ebook.cnt)}
+
+        line_chart = []
+        for i in range(13, -1, -1):
+            day = (now - timedelta(days=i)).date()
+            next_day = day + timedelta(days=1)
+            count = DownloadEvent.query.filter(DownloadEvent.downloaded_at >= datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc), DownloadEvent.downloaded_at < datetime.combine(next_day, datetime.min.time(), tzinfo=timezone.utc)).count()
+            line_chart.append({"date": day.isoformat(), "downloads": count})
+
+        bar_chart = []
+        rows = (
+            db.session.query(DownloadEvent.ebook_id, func.count(DownloadEvent.id).label("cnt"))
+            .group_by(DownloadEvent.ebook_id)
+            .order_by(func.count(DownloadEvent.id).desc())
+            .limit(10)
+            .all()
+        )
+        for row in rows:
+            eb = Ebook.query.get(row.ebook_id)
+            bar_chart.append({"ebook_id": row.ebook_id, "title": eb.title if eb else None, "downloads": int(row.cnt)})
+
+        total_codes = AccessCode.query.count()
+        pie = {
+            "active": total_active_codes,
+            "used": used_codes,
+            "expired": expired_codes,
+            "inactive": max(total_codes - total_active_codes - used_codes - expired_codes, 0),
+        }
+
+        recent_activity = AuditLog.query.order_by(AuditLog.created_at.desc()).limit(20).all()
+        return jsonify(
+            {
+                "totals": {
+                    "ebooks": total_ebooks,
+                    "active_codes": total_active_codes,
+                    "used_codes": used_codes,
+                    "expired_codes": expired_codes,
+                    "downloads_daily": total_downloads_daily,
+                    "downloads_weekly": total_downloads_weekly,
+                    "downloads_all_time": total_downloads_all_time,
+                },
+                "most_downloaded_ebook": top_ebook_payload,
+                "charts": {"line_downloads": line_chart, "bar_top_ebooks": bar_chart, "pie_code_status": pie},
+                "recent_activity": [
+                    {
+                        "admin_user_id": a.admin_user_id,
+                        "action": a.action,
+                        "ip_address": a.ip_address,
+                        "created_at": a.created_at.isoformat(),
+                    }
+                    for a in recent_activity
+                ],
+            }
+        )
+
+    @app.get("/admin/ebooks")
+    @require_auth(role="admin")
+    def admin_list_ebooks_panel():
+        q = (request.args.get("q") or "").strip().lower()
+        category_id = request.args.get("category_id", type=int)
+        featured = request.args.get("featured")
+        query = Ebook.query
+        if q:
+            query = query.filter((func.lower(Ebook.title).contains(q)) | (func.lower(Ebook.author).contains(q)))
+        if category_id:
+            query = query.filter(Ebook.category_id == category_id)
+        if featured is not None:
+            query = query.filter(Ebook.is_featured.is_(str(featured).lower() == "true"))
+        ebooks = query.order_by(Ebook.updated_at.desc()).all()
+        return jsonify([ebook_to_dict(e, include_files=True, include_stats=True) for e in ebooks])
+
+    @app.get("/admin/users")
+    @require_auth(role="admin")
+    def admin_users():
+        users = User.query.order_by(User.created_at.desc()).all()
+        return jsonify([
+            {
+                "id": u.id,
+                "email": u.email,
+                "role": u.role,
+                "is_active": u.is_active,
+                "created_at": u.created_at.isoformat(),
+                "review_count": Review.query.filter_by(user_id=u.id).count(),
+                "download_count": DownloadHistory.query.filter_by(user_id=u.id).count(),
+            }
+            for u in users
+        ])
+
+    @app.patch("/admin/users/<int:user_id>/deactivate")
+    @require_auth(role="admin")
+    def admin_deactivate_user(user_id):
+        user = User.query.get_or_404(user_id)
+        user.is_active = False
+        Session.query.filter_by(user_id=user.id).delete()
+        db.session.commit()
+        log_admin_action(request.current_user.id, f"user_deactivate:{user.id}")
+        return jsonify({"message": "User deactivated"})
+
+    def _csv_response(filename, headers, rows):
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(headers)
+        for row in rows:
+            writer.writerow(row)
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+
+    @app.get("/admin/exports/downloads.csv")
+    @require_auth(role="admin")
+    def export_downloads_csv():
+        rows = DownloadHistory.query.order_by(DownloadHistory.downloaded_at.desc()).all()
+        return _csv_response(
+            "downloads.csv",
+            ["history_id", "user_id", "ebook_id", "code_id", "version_label", "downloaded_at"],
+            [[r.id, r.user_id, r.ebook_id, r.code_id, r.version_label, r.downloaded_at.isoformat()] for r in rows],
+        )
+
+    @app.get("/admin/exports/code-usage.csv")
+    @require_auth(role="admin")
+    def export_code_usage_csv():
+        rows = CodeUsageLog.query.order_by(CodeUsageLog.used_at.desc()).all()
+        return _csv_response(
+            "code_usage.csv",
+            ["id", "code_id", "user_id", "ip_address", "used_at", "download_completed", "was_successful", "failure_reason"],
+            [[r.id, r.code_id, r.user_id, r.ip_address, r.used_at.isoformat(), r.download_completed, r.was_successful, r.failure_reason] for r in rows],
+        )
+
+    @app.get("/admin/exports/user-activity.csv")
+    @require_auth(role="admin")
+    def export_user_activity_csv():
+        users = User.query.order_by(User.created_at.desc()).all()
+        return _csv_response(
+            "user_activity.csv",
+            ["user_id", "email", "role", "is_active", "reviews", "favorites", "downloads"],
+            [[u.id, u.email, u.role, u.is_active, Review.query.filter_by(user_id=u.id).count(), Favorite.query.filter_by(user_id=u.id).count(), DownloadHistory.query.filter_by(user_id=u.id).count()] for u in users],
+        )
+
+    @app.get("/admin/reports/summary")
+    @require_auth(role="admin")
+    def admin_report_summary():
+        period = (request.args.get("period") or "daily").strip().lower()
+        days = 1 if period == "daily" else 7
+        since = utcnow() - timedelta(days=days)
+        summary = {
+            "period": period,
+            "downloads": DownloadHistory.query.filter(DownloadHistory.downloaded_at >= since).count(),
+            "new_codes": AccessCode.query.filter(AccessCode.created_at >= since).count(),
+            "new_reviews": Review.query.filter(Review.created_at >= since).count(),
+            "new_users": User.query.filter(User.created_at >= since).count(),
+        }
+        return jsonify(summary)
+
+    @app.post("/admin/reports/send")
+    @require_auth(role="admin")
+    def admin_send_report_preview():
+        period = (request.args.get("period") or "daily").strip().lower()
+        days = 1 if period == "daily" else 7
+        since = utcnow() - timedelta(days=days)
+        payload = {
+            "period": period,
+            "generated_at": utcnow().isoformat(),
+            "downloads": DownloadHistory.query.filter(DownloadHistory.downloaded_at >= since).count(),
+            "codes_used": AccessCode.query.filter(AccessCode.is_used.is_(True), AccessCode.created_at >= since).count(),
+            "top_ebook": None,
+        }
+        top = (
+            db.session.query(DownloadHistory.ebook_id, func.count(DownloadHistory.id).label("cnt"))
+            .filter(DownloadHistory.downloaded_at >= since)
+            .group_by(DownloadHistory.ebook_id)
+            .order_by(func.count(DownloadHistory.id).desc())
+            .first()
+        )
+        if top:
+            eb = Ebook.query.get(top.ebook_id)
+            payload["top_ebook"] = {"ebook_id": top.ebook_id, "title": eb.title if eb else None, "downloads": int(top.cnt)}
+        log_admin_action(request.current_user.id, f"report_send:{period}")
+        return jsonify({"message": "Report generated (email integration placeholder)", "report": payload})
+
+    @app.post("/admin/maintenance/toggle")
+    @require_auth(role="admin")
+    def toggle_maintenance_mode():
+        enabled = str((as_data().get("enabled") if as_data() else "true")).lower() == "true"
+        set_setting("maintenance_mode", str(enabled).lower())
+        log_admin_action(request.current_user.id, f"maintenance_toggle:{enabled}")
+        return jsonify({"maintenance_mode": enabled})
+
+    @app.post("/admin/notifications")
+    @require_auth(role="admin")
+    def create_notification():
+        data = as_data()
+        message = (data.get("message") or "").strip()
+        if not message:
+            return jsonify({"error": "message is required"}), 400
+        row = SiteNotification(message=message, is_active=True, created_by_admin=request.current_user.id)
+        db.session.add(row)
+        set_setting("site_notification", message)
+        db.session.commit()
+        log_admin_action(request.current_user.id, f"notification_create:{row.id}")
+        return jsonify({"id": row.id, "message": row.message, "is_active": row.is_active}), 201
+
+    @app.get("/admin/notifications")
+    @require_auth(role="admin")
+    def list_notifications():
+        rows = SiteNotification.query.order_by(SiteNotification.created_at.desc()).all()
+        return jsonify([
+            {
+                "id": r.id,
+                "message": r.message,
+                "is_active": r.is_active,
+                "created_by_admin": r.created_by_admin,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ])
+
+    @app.post("/admin/backups/trigger")
+    @require_auth(role="admin")
+    def trigger_backup():
+        backup_root = Path(storage_root) / "backups"
+        backup_root.mkdir(parents=True, exist_ok=True)
+        stamp = utcnow().strftime("%Y%m%d%H%M%S")
+        backup_file = backup_root / f"backup-{stamp}.json"
+        snapshot = {
+            "generated_at": utcnow().isoformat(),
+            "counts": {
+                "users": User.query.count(),
+                "ebooks": Ebook.query.count(),
+                "codes": AccessCode.query.count(),
+                "downloads": DownloadHistory.query.count(),
+                "reviews": Review.query.count(),
+            },
+        }
+        backup_file.write_text(json.dumps(snapshot, indent=2))
+        job = BackupJob(initiated_by_admin=request.current_user.id, backup_file=str(backup_file), status="completed")
+        db.session.add(job)
+        db.session.commit()
+        log_admin_action(request.current_user.id, f"backup_trigger:{job.id}")
+        return jsonify({"job_id": job.id, "backup_file": str(backup_file), "status": job.status})
+
+    @app.get("/admin/backups")
+    @require_auth(role="admin")
+    def list_backups():
+        jobs = BackupJob.query.order_by(BackupJob.created_at.desc()).limit(100).all()
+        return jsonify([
+            {
+                "id": j.id,
+                "initiated_by_admin": j.initiated_by_admin,
+                "backup_file": j.backup_file,
+                "status": j.status,
+                "created_at": j.created_at.isoformat(),
+            }
+            for j in jobs
+        ])
+
+    @app.get("/admin/error-logs")
+    @require_auth(role="admin")
+    def list_error_logs():
+        rows = ErrorLog.query.order_by(ErrorLog.created_at.desc()).limit(500).all()
+        return jsonify([
+            {
+                "id": r.id,
+                "source": r.source,
+                "severity": r.severity,
+                "message": r.message,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ])
+
+    @app.post("/admin/error-logs")
+    @require_auth(role="admin")
+    def create_error_log_entry():
+        data = as_data()
+        msg = (data.get("message") or "").strip()
+        if not msg:
+            return jsonify({"error": "message is required"}), 400
+        row = ErrorLog(source=(data.get("source") or "manual").strip(), severity=(data.get("severity") or "error").strip(), message=msg)
+        db.session.add(row)
+        db.session.commit()
+        log_admin_action(request.current_user.id, f"error_log_create:{row.id}")
+        return jsonify({"id": row.id}), 201
+
+    @app.get("/admin/settings/rate-limits")
+    @require_auth(role="admin")
+    def get_rate_limits():
+        return jsonify(
+            {
+                "login_window_minutes": app.config["LOGIN_RATE_LIMIT_WINDOW_MINUTES"],
+                "login_max_attempts": app.config["LOGIN_RATE_LIMIT_MAX_ATTEMPTS"],
+                "code_window_minutes": app.config["CODE_ATTEMPT_WINDOW_MINUTES"],
+                "code_max_attempts": app.config["CODE_ATTEMPT_MAX"],
+                "review_window_minutes": app.config["REVIEW_RATE_LIMIT_WINDOW_MINUTES"],
+                "review_max_attempts": app.config["REVIEW_RATE_LIMIT_MAX_ATTEMPTS"],
             }
         )
 

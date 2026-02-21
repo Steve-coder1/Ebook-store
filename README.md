@@ -1,4 +1,4 @@
-# Ebook Store - Systems 1, 2, 3, 4, 5 & 6
+# Ebook Store - Systems 1, 2, 3, 4, 5, 6 & 7
 
 Flask backend implementing:
 - **System 1**: authentication (users/admin), sessions, password reset, login protections.
@@ -7,6 +7,7 @@ Flask backend implementing:
 - **System 4**: controlled secure download delivery sessions (temporary links, multi-file handling, and delivery analytics).
 - **System 5**: reviews and ratings engine with anti-abuse controls and analytics.
 - **System 6**: favorites and user-profile personalization with download history.
+- **System 7**: admin dashboard and analytics control center.
 
 ## Implemented capabilities
 
@@ -42,7 +43,7 @@ Flask backend implementing:
 - Code brute-force model (`code_attempts`) for failed-attempt tracking
 - Code validation flow with existence, expiration, single-use, and deactivation checks
 - Rate-limit checks (IP + session) with optional captcha requirement after repeated failures
-- Admin controls to generate/deactivate/list codes and inspect usage + failures
+- Admin controls to generate/deactivate/delete/list codes and inspect usage + failures
 
 ### Secure Download Delivery (System 4)
 - Download session model (`download_sessions`) created after successful code validation
@@ -66,19 +67,40 @@ Flask backend implementing:
 
 ### Favorites & User Profile (System 6)
 - Favorites add/remove/list endpoints for authenticated users
-- Favorites listing supports sorting by:
-  - `recent` (default)
-  - `rating`
-  - `title`
-- Dedicated download history table (`download_history`) storing:
-  - user
-  - ebook
-  - code used (if any)
-  - timestamp
-  - version label downloaded
+- Favorites listing supports sorting by `recent`, `rating`, and `title`
+- Dedicated download history table (`download_history`) with code linkage and version labels
 - User-only history endpoint (`/downloads/history`) enforces ownership
 - Admin history visibility endpoint (`/admin/download-histories`) supports user/ebook filtering
-- Download history entries are recorded after successful authenticated and code-based downloads
+- Download history entries recorded after successful direct/code/bundle downloads
+
+### Admin Dashboard & Analytics (System 7)
+- Overview panel endpoint (`/admin/dashboard/overview`) with:
+  - total ebooks
+  - total active codes
+  - used vs expired code counts
+  - downloads daily/weekly/all-time
+  - most downloaded ebook
+  - recent admin activity feed
+  - chart-ready datasets (line, bar, pie)
+- Admin ebook panel endpoint (`/admin/ebooks`) with search and filters
+- Code management enhancements:
+  - status filtering (`used|active|expired`) in `/admin/codes`
+  - hard delete endpoint (`DELETE /admin/codes/<id>`)
+- User management endpoints:
+  - list users (`/admin/users`)
+  - deactivate account (`/admin/users/<id>/deactivate`)
+- Reports and exports:
+  - summary report (`/admin/reports/summary?period=daily|weekly`)
+  - report preview/simulated send (`/admin/reports/send`)
+  - CSV exports for downloads/code-usage/user-activity
+- Maintenance/system controls:
+  - maintenance mode toggle (`/admin/maintenance/toggle`)
+  - site notifications (`/admin/notifications`)
+  - manual backups (`/admin/backups/trigger`, `/admin/backups`)
+  - error log list/create (`/admin/error-logs`)
+  - rate-limit config visibility (`/admin/settings/rate-limits`)
+- Audit integration:
+  - admin actions logged for ebook/code/user/report/maintenance/backup/error-log operations
 
 ## Database tables
 - `users`
@@ -91,6 +113,7 @@ Flask backend implementing:
 - `ebook_files`
 - `favorites`
 - `download_events`
+- `download_history`
 - `codes`
 - `code_usage_logs`
 - `code_attempts`
@@ -99,7 +122,10 @@ Flask backend implementing:
 - `download_token_uses`
 - `reviews`
 - `review_attempt_logs`
-- `download_history`
+- `site_settings`
+- `site_notifications`
+- `backup_jobs`
+- `error_logs`
 
 ## Run
 ```bash
@@ -119,5 +145,5 @@ Open:
 - Code-validation returns session-scoped file links and optional bundle links (`/download/code/<token>`, `/download/code/bundle/<token>`).
 - Review endpoints enforce per-user uniqueness and submission rate limits.
 - Download history endpoints are scoped: users can only read their own history; admins can query aggregate history.
+- Maintenance mode blocks non-admin traffic when enabled.
 - Set `SESSION_COOKIE_SECURE=true` in HTTPS deployments.
-- Configure a stable production `SECRET_KEY` and integrate a real email provider for password reset delivery.
