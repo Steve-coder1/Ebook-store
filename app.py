@@ -5,6 +5,7 @@ import os
 import secrets
 import zipfile
 from datetime import datetime, timedelta, timezone
+from xml.sax.saxutils import escape
 from functools import wraps
 from pathlib import Path
 
@@ -97,6 +98,8 @@ class Ebook(db.Model):
     author = db.Column(db.String(255), nullable=False, index=True)
     category_id = db.Column(db.Integer, db.ForeignKey("categories.id"), nullable=True)
     cover_image_path = db.Column(db.String(500), nullable=True)
+    slug = db.Column(db.String(280), nullable=True, unique=True, index=True)
+    keywords = db.Column(db.Text, nullable=True)
     preview_file_path = db.Column(db.String(500), nullable=True)
     is_featured = db.Column(db.Boolean, nullable=False, default=False)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
@@ -284,6 +287,18 @@ class ErrorLog(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
 
 
+class SearchQueryLog(db.Model):
+    __tablename__ = "search_query_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    term = db.Column(db.String(255), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    ip_address = db.Column(db.String(64), nullable=False, index=True)
+    result_count = db.Column(db.Integer, nullable=False, default=0)
+    is_zero_result = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+
+
 def create_app():
     app = Flask(__name__)
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///ebook_store.db")
@@ -457,6 +472,40 @@ def create_app():
             slug = f"{slug}-{secrets.token_hex(2)}"
         return slug
 
+    def create_ebook_slug(title):
+        base = "-".join((title or "ebook").lower().split())
+        slug = "".join(ch for ch in base if ch.isalnum() or ch == "-").strip("-")
+        if not slug:
+            slug = f"ebook-{secrets.token_hex(3)}"
+        candidate = slug
+        while Ebook.query.filter_by(slug=candidate).first():
+            candidate = f"{slug}-{secrets.token_hex(2)}"
+        return candidate
+
+    category_cache = {"expires_at": utcnow(), "data": {}}
+
+    def clear_category_cache():
+        category_cache["data"] = {}
+        category_cache["expires_at"] = utcnow()
+
+    def keyword_tokens(raw):
+        if not raw:
+            return []
+        return [k.strip() for k in str(raw).split(",") if k.strip()]
+
+    def log_search_query(term, result_count):
+        user = get_optional_user()
+        db.session.add(
+            SearchQueryLog(
+                term=term,
+                user_id=user.id if user else None,
+                ip_address=get_client_ip(),
+                result_count=int(result_count),
+                is_zero_result=int(result_count) == 0,
+            )
+        )
+        db.session.commit()
+
     def ebook_to_dict(ebook, include_files=False, include_stats=False):
         category = Category.query.get(ebook.category_id) if ebook.category_id else None
         avg_rating, review_count = db.session.query(
@@ -471,6 +520,8 @@ def create_app():
             "author": ebook.author,
             "category": {"id": category.id, "name": category.name, "slug": category.slug} if category else None,
             "cover_image_path": ebook.cover_image_path,
+            "slug": ebook.slug,
+            "keywords": keyword_tokens(ebook.keywords),
             "preview_available": bool(ebook.preview_file_path),
             "is_featured": ebook.is_featured,
             "is_active": ebook.is_active,
@@ -895,11 +946,14 @@ def create_app():
             author=author,
             category_id=category.id if category else None,
             cover_image_path=(data.get("cover_image_path") or "").strip() or None,
+            slug=create_ebook_slug((data.get("slug") or title)),
+            keywords=(data.get("keywords") or "").strip() or None,
             is_featured=str(data.get("is_featured", "false")).lower() == "true",
             is_active=True,
         )
         db.session.add(ebook)
         db.session.commit()
+        clear_category_cache()
         log_admin_action(request.current_user.id, f"ebook_create:{ebook.id}")
         return jsonify(ebook_to_dict(ebook, include_files=True)), 201
 
@@ -951,6 +1005,13 @@ def create_app():
             ebook.author = (data.get("author") or ebook.author).strip()
         if "cover_image_path" in data:
             ebook.cover_image_path = (data.get("cover_image_path") or "").strip() or None
+        if "slug" in data:
+            requested = (data.get("slug") or "").strip()
+            if requested and requested != ebook.slug and Ebook.query.filter_by(slug=requested).first():
+                return jsonify({"error": "Slug already exists"}), 409
+            ebook.slug = requested or ebook.slug or create_ebook_slug(ebook.title)
+        if "keywords" in data:
+            ebook.keywords = (data.get("keywords") or "").strip() or None
         if "is_featured" in data:
             ebook.is_featured = str(data.get("is_featured", "false")).lower() == "true"
         if "is_active" in data:
@@ -966,6 +1027,7 @@ def create_app():
                 ebook.category_id = category.id
 
         db.session.commit()
+        clear_category_cache()
         log_admin_action(request.current_user.id, f"ebook_update:{ebook.id}")
         return jsonify(ebook_to_dict(ebook, include_files=True, include_stats=True))
 
@@ -990,37 +1052,137 @@ def create_app():
             Favorite.query.filter_by(ebook_id=ebook.id).delete()
             db.session.delete(ebook)
             db.session.commit()
+            clear_category_cache()
             log_admin_action(request.current_user.id, f"ebook_delete:{ebook.id}")
             return jsonify({"message": "ebook deleted"})
 
         ebook.is_active = False
         db.session.commit()
+        clear_category_cache()
         log_admin_action(request.current_user.id, f"ebook_deactivate:{ebook.id}")
         return jsonify({"message": "ebook deactivated"})
+
+    @app.get("/search/suggestions")
+    def search_suggestions():
+        q = (request.args.get("q") or "").strip().lower()
+        if not q:
+            return jsonify([])
+        suggestions = []
+        titles = Ebook.query.filter(func.lower(Ebook.title).contains(q), Ebook.is_active.is_(True)).limit(5).all()
+        authors = Ebook.query.filter(func.lower(Ebook.author).contains(q), Ebook.is_active.is_(True)).limit(5).all()
+        cats = Category.query.filter(func.lower(Category.name).contains(q)).limit(5).all()
+        suggestions.extend([{"type": "title", "value": e.title} for e in titles])
+        suggestions.extend([{"type": "author", "value": e.author} for e in authors])
+        suggestions.extend([{"type": "category", "value": c.name, "slug": c.slug} for c in cats])
+        seen = set()
+        unique = []
+        for item in suggestions:
+            key = (item["type"], item["value"])
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(item)
+        return jsonify(unique[:10])
 
     @app.get("/ebooks")
     def list_ebooks():
         category_slug = (request.args.get("category") or "").strip()
+        author = (request.args.get("author") or "").strip().lower()
         q = (request.args.get("q") or "").strip().lower()
         featured = (request.args.get("featured") or "").strip().lower() == "true"
+        min_rating = request.args.get("min_rating", type=float)
+        recent_days = request.args.get("recent_days", type=int)
+        sort_by = (request.args.get("sort") or "newest").strip().lower()
+        page = max(request.args.get("page", 1, type=int), 1)
+        per_page = min(max(request.args.get("per_page", 20, type=int), 1), 100)
 
         query = Ebook.query.filter_by(is_active=True)
         if category_slug:
             category = Category.query.filter_by(slug=category_slug).first()
             if not category:
-                return jsonify([])
+                log_search_query(q or f"category:{category_slug}", 0)
+                return jsonify({"items": [], "pagination": {"page": page, "per_page": per_page, "total": 0}})
             query = query.filter_by(category_id=category.id)
         if featured:
             query = query.filter_by(is_featured=True)
+        if author:
+            query = query.filter(func.lower(Ebook.author).contains(author))
         if q:
             query = query.filter(
                 (func.lower(Ebook.title).contains(q))
                 | (func.lower(Ebook.author).contains(q))
                 | (func.lower(Ebook.description).contains(q))
+                | (func.lower(Ebook.keywords).contains(q))
             )
 
-        ebooks = query.order_by(Ebook.created_at.desc()).all()
-        return jsonify([ebook_to_dict(e, include_files=True) for e in ebooks])
+        ebooks = query.all()
+
+        scored = []
+        for e in ebooks:
+            score = 0
+            if q:
+                title = (e.title or "").lower()
+                author_v = (e.author or "").lower()
+                desc = (e.description or "").lower()
+                if q in title:
+                    score += 100
+                if q in author_v:
+                    score += 50
+                if q in desc:
+                    score += 20
+            avg, cnt = db.session.query(func.avg(Review.rating), func.count(Review.id)).filter(Review.ebook_id == e.id).first()
+            avg = float(avg) if avg is not None else 0.0
+            cnt = int(cnt or 0)
+            dls = int(db.session.query(func.count(DownloadHistory.id)).filter(DownloadHistory.ebook_id == e.id).scalar() or 0)
+            scored.append((e, score, avg, cnt, dls))
+
+        if min_rating is not None:
+            scored = [row for row in scored if row[2] >= float(min_rating)]
+        if recent_days:
+            cutoff = utcnow() - timedelta(days=recent_days)
+            scored = [row for row in scored if row[0].created_at >= cutoff]
+
+        if sort_by == "highest_rated":
+            scored.sort(key=lambda r: (r[2], r[3], r[0].title or ""), reverse=True)
+        elif sort_by == "most_downloaded":
+            scored.sort(key=lambda r: (r[4], r[2], r[0].title or ""), reverse=True)
+        elif sort_by == "alphabetical":
+            scored.sort(key=lambda r: (r[0].title or "").lower())
+        elif q:
+            scored.sort(key=lambda r: (r[1], r[2], r[4]), reverse=True)
+        else:
+            scored.sort(key=lambda r: r[0].created_at, reverse=True)
+
+        total = len(scored)
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        page_items = [ebook_to_dict(r[0], include_files=True) for r in scored[start_idx:end_idx]]
+
+        log_search_query(q or "browse", total)
+        return jsonify(
+            {
+                "items": page_items,
+                "pagination": {
+                    "page": page,
+                    "per_page": per_page,
+                    "total": total,
+                    "pages": (total + per_page - 1) // per_page,
+                },
+            }
+        )
+
+    @app.get("/categories/<slug>/ebooks")
+    def category_ebooks(slug):
+        now = utcnow()
+        cache_entry = category_cache["data"].get(slug)
+        if cache_entry and cache_entry["expires_at"] > now:
+            return jsonify({"cached": True, "items": cache_entry["items"]})
+
+        category = Category.query.filter_by(slug=slug).first_or_404()
+        ebooks = Ebook.query.filter_by(category_id=category.id, is_active=True).order_by(Ebook.created_at.desc()).all()
+        payload = [ebook_to_dict(e, include_files=False) for e in ebooks]
+        category_cache["data"][slug] = {"expires_at": now + timedelta(minutes=5), "items": payload}
+        return jsonify({"cached": False, "items": payload})
 
     @app.get("/ebooks/<int:ebook_id>")
     def ebook_detail(ebook_id):
@@ -1028,6 +1190,51 @@ def create_app():
         if not ebook.is_active:
             abort(404)
         return jsonify(ebook_to_dict(ebook, include_files=True))
+
+    @app.get("/ebook/<slug>")
+    def ebook_detail_by_slug(slug):
+        ebook = Ebook.query.filter_by(slug=slug, is_active=True).first_or_404()
+        category = Category.query.get(ebook.category_id) if ebook.category_id else None
+        avg_rating, review_count = db.session.query(func.avg(Review.rating), func.count(Review.id)).filter(Review.ebook_id == ebook.id).first()
+        seo = {
+            "meta_title": f"{ebook.title} by {ebook.author} | Ebook Store",
+            "meta_description": (ebook.description or ebook.summary_text or "Digital ebook available on Ebook Store.")[:160],
+            "canonical_url": f"/ebook/{ebook.slug}",
+            "structured_data": {
+                "@context": "https://schema.org",
+                "@type": "Book",
+                "name": ebook.title,
+                "author": {"@type": "Person", "name": ebook.author},
+                "description": ebook.description or ebook.summary_text,
+                "genre": category.name if category else None,
+                "aggregateRating": {
+                    "@type": "AggregateRating",
+                    "ratingValue": round(float(avg_rating), 2) if avg_rating is not None else None,
+                    "reviewCount": int(review_count or 0),
+                },
+            },
+        }
+        response = ebook_to_dict(ebook, include_files=True)
+        response["seo"] = seo
+        return jsonify(response)
+
+    @app.get("/ebooks/<int:ebook_id>/share")
+    def ebook_share_links(ebook_id):
+        ebook = Ebook.query.get_or_404(ebook_id)
+        slug_part = ebook.slug or str(ebook.id)
+        base = f"/ebook/{slug_part}"
+        return jsonify(
+            {
+                "ebook_page": base,
+                "preview_page": f"/ebooks/{ebook.id}/preview",
+                "reviews_page": f"/ebooks/{ebook.id}/reviews",
+                "social_share": {
+                    "x": f"https://twitter.com/intent/tweet?text={ebook.title}&url={base}",
+                    "facebook": f"https://www.facebook.com/sharer/sharer.php?u={base}",
+                    "linkedin": f"https://www.linkedin.com/sharing/share-offsite/?url={base}",
+                },
+            }
+        )
 
     @app.get("/ebooks/<int:ebook_id>/preview")
     def ebook_preview(ebook_id):
@@ -2066,6 +2273,44 @@ def create_app():
                 "code_max_attempts": app.config["CODE_ATTEMPT_MAX"],
                 "review_window_minutes": app.config["REVIEW_RATE_LIMIT_WINDOW_MINUTES"],
                 "review_max_attempts": app.config["REVIEW_RATE_LIMIT_MAX_ATTEMPTS"],
+            }
+        )
+
+    @app.get("/sitemap.xml")
+    def sitemap_xml():
+        pages = ["/", "/ebooks", "/categories", "/admin"]
+        categories = Category.query.all()
+        ebooks = Ebook.query.filter_by(is_active=True).all()
+        urls = pages + [f"/categories/{c.slug}/ebooks" for c in categories] + [f"/ebook/{e.slug or e.id}" for e in ebooks]
+        xml = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+        for u in urls:
+            xml.append("<url><loc>" + escape(u) + "</loc></url>")
+        xml.append("</urlset>")
+        return Response("".join(xml), mimetype="application/xml")
+
+    @app.get("/admin/search-analytics")
+    @require_auth(role="admin")
+    def admin_search_analytics():
+        rows = (
+            db.session.query(SearchQueryLog.term, func.count(SearchQueryLog.id).label("cnt"))
+            .group_by(SearchQueryLog.term)
+            .order_by(func.count(SearchQueryLog.id).desc())
+            .limit(20)
+            .all()
+        )
+        zero_rows = (
+            db.session.query(SearchQueryLog.term, func.count(SearchQueryLog.id).label("cnt"))
+            .filter(SearchQueryLog.is_zero_result.is_(True))
+            .group_by(SearchQueryLog.term)
+            .order_by(func.count(SearchQueryLog.id).desc())
+            .limit(20)
+            .all()
+        )
+        return jsonify(
+            {
+                "most_searched_terms": [{"term": q, "count": int(c)} for q, c in rows],
+                "zero_result_searches": [{"term": q, "count": int(c)} for q, c in zero_rows],
+                "total_queries": SearchQueryLog.query.count(),
             }
         )
 
