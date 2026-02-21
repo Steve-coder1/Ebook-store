@@ -1292,6 +1292,11 @@ def create_app():
             abort(404)
         return jsonify(ebook_to_dict(ebook, include_files=True))
 
+
+    @app.get("/ebook/<slug>/page")
+    def ebook_detail_page(slug):
+        return render_template("ebook.html", ebook_slug=slug)
+
     @app.get("/ebook/<slug>")
     def ebook_detail_by_slug(slug):
         ebook = Ebook.query.filter_by(slug=slug, is_active=True).first_or_404()

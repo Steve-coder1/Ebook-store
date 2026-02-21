@@ -107,7 +107,7 @@ async function loadHomepageSections() {
           <p>${ebook.author || 'Unknown author'}</p>
           <div class="book-hover">
             <small>${starString(ebook.average_rating || 0)}</small>
-            <a class="hero-link" href="/ebook/${ebook.slug || ebook.id}">Quick preview</a>
+            <a class="hero-link" href="/ebook/${ebook.slug || ebook.id}/page">Quick preview</a>
           </div>
         </div>
       </article>
@@ -153,7 +153,7 @@ function renderCatalog(items) {
         <p>${ebook.author || 'Unknown author'}</p>
         <div class="book-hover">
           <small>${starString(ebook.average_rating || 0)}</small>
-          <a class="hero-link" href="/ebook/${ebook.slug || ebook.id}">Open details</a>
+          <a class="hero-link" href="/ebook/${ebook.slug || ebook.id}/page">Open details</a>
         </div>
       </div>
     </article>
