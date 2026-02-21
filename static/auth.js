@@ -15,17 +15,7 @@ async function refreshCaptcha() {
 }
 
 function setupHeaderUX() {
-  const body = document.body;
-  const themeToggle = document.getElementById('theme-toggle');
-  const savedTheme = localStorage.getItem('theme') || 'light';
-  if (savedTheme === 'dark') {
-    body.classList.add('dark');
-    if (themeToggle) themeToggle.checked = true;
-  }
-  themeToggle?.addEventListener('change', () => {
-    body.classList.toggle('dark', themeToggle.checked);
-    localStorage.setItem('theme', themeToggle.checked ? 'dark' : 'light');
-  });
+  window.EbookTheme?.initTheme();
 
   const menuBtn = document.getElementById('menu-toggle');
   const nav = document.getElementById('main-nav');

@@ -457,3 +457,44 @@ pre { white-space: pre-wrap; background: #111; color: #d4ffd4; padding: 0.75rem;
   .footer-grid { grid-template-columns: 1fr; }
   .scroll-top-btn { right: 12px; bottom: 12px; }
 }
+
+/* Dark mode readability + subtle global transitions */
+body, .section-block, .section-mini, .book-card, .profile-card, .list-item, .site-banner, .site-footer, input, select, textarea, button {
+  transition: background-color .22s ease, color .22s ease, border-color .22s ease, box-shadow .22s ease, transform .22s ease;
+}
+body.dark pre { background: #0b0d12; color: #c9ffd2; }
+body.dark input, body.dark select, body.dark textarea, body.dark button {
+  background: color-mix(in srgb, var(--surface) 88%, #000);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--border) 90%, #000);
+}
+
+.download-progress {
+  margin-top: .55rem;
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: none;
+}
+.download-progress i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--accent), #22c55e);
+}
+.download-progress.active { display: block; }
+.download-progress.active i { width: 100%; transition: width .9s ease; }
+.download-progress.complete i { width: 100%; }
+
+.fade-in { animation: fadeIn .25s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: translateY(0);} }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

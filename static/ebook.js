@@ -4,17 +4,7 @@ function stars(rating) {
 }
 
 function applyThemeAndMenu() {
-  const body = document.body;
-  const themeToggle = document.getElementById('theme-toggle');
-  const savedTheme = localStorage.getItem('theme') || 'light';
-  if (savedTheme === 'dark') {
-    body.classList.add('dark');
-    if (themeToggle) themeToggle.checked = true;
-  }
-  themeToggle?.addEventListener('change', () => {
-    body.classList.toggle('dark', themeToggle.checked);
-    localStorage.setItem('theme', themeToggle.checked ? 'dark' : 'light');
-  });
+  window.EbookTheme?.initTheme();
 
   const menuBtn = document.getElementById('menu-toggle');
   const nav = document.getElementById('main-nav');
@@ -57,6 +47,7 @@ async function initEbookPage() {
   const loadMoreBtn = document.getElementById('load-more-reviews');
   const feedback = document.getElementById('download-feedback');
   const linksWrap = document.getElementById('download-links');
+  const progress = document.getElementById('download-progress');
   const favoriteBtn = document.getElementById('favorite-btn');
   const favoriteNote = document.getElementById('favorite-note');
 
@@ -75,6 +66,8 @@ async function initEbookPage() {
     `).join('') || '<p>No reviews yet.</p>';
 
     loadMoreBtn.style.display = shownReviews < reviews.length ? 'inline-block' : 'none';
+    reviewsWrap.classList.remove('fade-in');
+    requestAnimationFrame(() => reviewsWrap.classList.add('fade-in'));
   }
 
   try {
@@ -150,12 +143,14 @@ async function initEbookPage() {
   document.getElementById('code-unlock-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
+    if (progress) progress.classList.add('active');
+    linksWrap.innerHTML = '';
     const res = await fetch('/codes/validate', { method: 'POST', body: formData });
     const data = await res.json();
 
     if (!res.ok) {
       feedback.textContent = data.error || 'Code validation failed.';
-      linksWrap.innerHTML = '';
+      if (progress) progress.classList.remove('active');
       return;
     }
 
@@ -163,6 +158,11 @@ async function initEbookPage() {
     const fileLinks = (data.files || []).map((f) => `<a class="download-link" href="${f.download_url}">${f.file_name}</a>`).join('');
     const bundle = data.bundle_download_url ? `<a class="download-link" href="${data.bundle_download_url}">Download bundle (zip)</a>` : '';
     linksWrap.innerHTML = `<div class="download-links-inner">${fileLinks}${bundle}</div>`;
+    if (progress) {
+      progress.classList.remove('active');
+      progress.classList.add('complete');
+      setTimeout(() => progress.classList.remove('complete'), 900);
+    }
   });
 }
 
