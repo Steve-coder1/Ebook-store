@@ -498,3 +498,19 @@ body.dark input, body.dark select, body.dark textarea, body.dark button {
     scroll-behavior: auto !important;
   }
 }
+
+.code-entry-page { max-width: 760px; margin: 0 auto; }
+.code-entry-form { display: grid; gap: .6rem; }
+.code-status { margin-top: .7rem; padding: .55rem .65rem; border-radius: 8px; border: 1px solid var(--border); }
+.code-status.info { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.code-status.success { background: color-mix(in srgb, #22c55e 12%, var(--surface)); border-color: #22c55e; }
+.code-status.error { background: color-mix(in srgb, #ef4444 12%, var(--surface)); border-color: #ef4444; }
+.captcha-wrap { display: grid; gap: .45rem; }
+.hidden { display: none !important; }
+.file-list.file-list-scroll { max-height: 220px; overflow: auto; padding-right: .3rem; }
+.file-list.file-list-scroll li { display: grid; gap: .3rem; }
+
+@media (max-width: 768px) {
+  .code-entry-page { max-width: 100%; }
+  .code-entry-form button { width: 100%; }
+}

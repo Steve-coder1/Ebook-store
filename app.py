@@ -804,6 +804,11 @@ def create_app():
     def terms_page():
         return render_template("terms.html")
 
+    @app.get("/download-access")
+    @require_auth()
+    def download_access_page():
+        return render_template("download_access.html")
+
     @app.get("/auth/captcha")
     def captcha():
         challenge, answer = generate_captcha_pair()
