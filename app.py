@@ -9,7 +9,7 @@ from xml.sax.saxutils import escape
 from functools import wraps
 from pathlib import Path
 
-from flask import Flask, Response, abort, jsonify, make_response, redirect, render_template, request, send_file, url_for
+from flask import Flask, Response, abort, jsonify, make_response, render_template, request, send_file
 from flask_sqlalchemy import SQLAlchemy
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from sqlalchemy import func
@@ -778,25 +778,9 @@ def create_app():
     def index():
         return render_template("index.html")
 
-    # Frontend page routes
-    @app.get("/login")
-    def login_page():
-        return render_template("login.html")
-
     @app.get("/admin")
+    @require_auth(role="admin")
     def admin_page():
-        active_session = get_session_from_cookie()
-        if not active_session:
-            return redirect(url_for("login_page"))
-        user = User.query.get(active_session.user_id)
-        if not user or not user.is_active:
-            resp = redirect(url_for("login_page"))
-            resp.delete_cookie("session_token")
-            return resp
-        if user.role != "admin":
-            return jsonify({"error": "Forbidden"}), 403
-        request.current_user = user
-        request.current_session = active_session
         return render_template("admin.html")
 
     @app.get("/profile")
@@ -825,7 +809,6 @@ def create_app():
     def download_access_page():
         return render_template("download_access.html")
 
-    # Backend/API routes
     @app.get("/auth/captcha")
     def captcha():
         challenge, answer = generate_captcha_pair()
