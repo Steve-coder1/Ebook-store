@@ -1,4 +1,4 @@
-# Ebook Store - Systems 1, 2, 3, 4 & 5
+# Ebook Store - Systems 1, 2, 3, 4, 5 & 6
 
 Flask backend implementing:
 - **System 1**: authentication (users/admin), sessions, password reset, login protections.
@@ -6,6 +6,7 @@ Flask backend implementing:
 - **System 3**: code-key gatekeeper (single-use code generation, validation, expiry, usage logging, and brute-force controls).
 - **System 4**: controlled secure download delivery sessions (temporary links, multi-file handling, and delivery analytics).
 - **System 5**: reviews and ratings engine with anti-abuse controls and analytics.
+- **System 6**: favorites and user-profile personalization with download history.
 
 ## Implemented capabilities
 
@@ -52,7 +53,6 @@ Flask backend implementing:
   - per-file secure links in validation response
   - optional bundle ZIP endpoint with expiring link (`/download/code/bundle/<token>`)
 - Attempt/result tracking (`download_attempt_logs`) with success/failure reason and completion status
-- Download history endpoint for authenticated users (`/downloads/history`)
 - Admin failure-rate alert endpoint for spike detection (`/admin/download-failure-alerts`)
 
 ### Reviews & Ratings (System 5)
@@ -63,6 +63,22 @@ Flask backend implementing:
 - Anti-abuse controls with review attempt rate-limiting and suspicious attempt logging (`review_attempt_logs`)
 - User profile integration endpoint to list user-posted reviews with linked ebook titles (`/profile/reviews`)
 - Admin analytics endpoint (`/admin/reviews/analytics`) for most reviewed, highest rated, and recent review activity
+
+### Favorites & User Profile (System 6)
+- Favorites add/remove/list endpoints for authenticated users
+- Favorites listing supports sorting by:
+  - `recent` (default)
+  - `rating`
+  - `title`
+- Dedicated download history table (`download_history`) storing:
+  - user
+  - ebook
+  - code used (if any)
+  - timestamp
+  - version label downloaded
+- User-only history endpoint (`/downloads/history`) enforces ownership
+- Admin history visibility endpoint (`/admin/download-histories`) supports user/ebook filtering
+- Download history entries are recorded after successful authenticated and code-based downloads
 
 ## Database tables
 - `users`
@@ -83,6 +99,7 @@ Flask backend implementing:
 - `download_token_uses`
 - `reviews`
 - `review_attempt_logs`
+- `download_history`
 
 ## Run
 ```bash
@@ -101,5 +118,6 @@ Open:
 - User-auth downloads use signed short-lived tokens (`/ebooks/<ebook_id>/download-link/<file_id>` -> `/download/<token>`).
 - Code-validation returns session-scoped file links and optional bundle links (`/download/code/<token>`, `/download/code/bundle/<token>`).
 - Review endpoints enforce per-user uniqueness and submission rate limits.
+- Download history endpoints are scoped: users can only read their own history; admins can query aggregate history.
 - Set `SESSION_COOKIE_SECURE=true` in HTTPS deployments.
 - Configure a stable production `SECRET_KEY` and integrate a real email provider for password reset delivery.

@@ -132,6 +132,17 @@ class DownloadEvent(db.Model):
     downloaded_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
 
 
+class DownloadHistory(db.Model):
+    __tablename__ = "download_history"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    ebook_id = db.Column(db.Integer, db.ForeignKey("ebooks.id"), nullable=False, index=True)
+    code_id = db.Column(db.Integer, db.ForeignKey("codes.id"), nullable=True, index=True)
+    downloaded_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    version_label = db.Column(db.String(100), nullable=True)
+
+
 class DownloadSession(db.Model):
     __tablename__ = "download_sessions"
 
@@ -521,6 +532,16 @@ def create_app():
             )
         )
         db.session.commit()
+
+    def record_download_history(user_id, ebook_id, version_label, code_id=None):
+        db.session.add(
+            DownloadHistory(
+                user_id=user_id,
+                ebook_id=ebook_id,
+                code_id=code_id,
+                version_label=version_label,
+            )
+        )
 
     @app.get("/")
     def index():
@@ -1115,9 +1136,26 @@ def create_app():
     @app.get("/favorites")
     @require_auth()
     def list_favorites():
-        ids = [f.ebook_id for f in Favorite.query.filter_by(user_id=request.current_user.id).all()]
-        ebooks = Ebook.query.filter(Ebook.id.in_(ids), Ebook.is_active.is_(True)).all() if ids else []
-        return jsonify([ebook_to_dict(e, include_files=False) for e in ebooks])
+        sort_by = (request.args.get("sort") or "recent").strip().lower()
+        favorites = Favorite.query.filter_by(user_id=request.current_user.id).order_by(Favorite.created_at.desc()).all()
+
+        rows = []
+        for fav in favorites:
+            ebook = Ebook.query.get(fav.ebook_id)
+            if not ebook or not ebook.is_active:
+                continue
+            payload = ebook_to_dict(ebook, include_files=False)
+            payload["favorited_at"] = fav.created_at.isoformat()
+            rows.append(payload)
+
+        if sort_by == "title":
+            rows.sort(key=lambda r: (r.get("title") or "").lower())
+        elif sort_by == "rating":
+            rows.sort(key=lambda r: (r.get("average_rating") is None, -(r.get("average_rating") or 0), (r.get("title") or "").lower()))
+        else:
+            rows.sort(key=lambda r: r.get("favorited_at"), reverse=True)
+
+        return jsonify(rows)
 
     @app.get("/ebooks/<int:ebook_id>/download-link/<int:file_id>")
     @require_auth()
@@ -1154,6 +1192,12 @@ def create_app():
                 ebook_id=payload.get("ebook_id"),
                 ebook_file_id=file_item.id,
             )
+        )
+        record_download_history(
+            user_id=request.current_user.id,
+            ebook_id=payload.get("ebook_id"),
+            version_label=file_item.version_label,
+            code_id=None,
         )
         db.session.commit()
         return send_file(file_path, as_attachment=True, download_name=file_item.file_name)
@@ -1346,6 +1390,12 @@ def create_app():
         log_download_attempt(session.id, file_id=file_item.id, success=True, completed=True)
         if session.user_id:
             db.session.add(DownloadEvent(user_id=session.user_id, ebook_id=session.ebook_id, ebook_file_id=file_item.id))
+            record_download_history(
+                user_id=session.user_id,
+                ebook_id=session.ebook_id,
+                version_label=file_item.version_label,
+                code_id=session.code_id,
+            )
         db.session.commit()
         return send_file(file_path, as_attachment=True, download_name=file_item.file_name)
 
@@ -1384,6 +1434,14 @@ def create_app():
 
         db.session.add(DownloadTokenUse(token_jti=jti, download_session_id=session.id, file_id=None))
         log_download_attempt(session.id, file_id=None, success=True, completed=True)
+        if session.user_id and files:
+            newest = sorted(files, key=lambda x: x.created_at, reverse=True)[0]
+            record_download_history(
+                user_id=session.user_id,
+                ebook_id=session.ebook_id,
+                version_label=f"bundle:{newest.version_label}",
+                code_id=session.code_id,
+            )
         db.session.commit()
         filename = f"ebook-{session.ebook_id}-bundle.zip"
         return send_file(zip_buffer, as_attachment=True, download_name=filename, mimetype="application/zip")
@@ -1502,17 +1560,54 @@ def create_app():
     @app.get("/downloads/history")
     @require_auth()
     def download_history():
-        rows = DownloadEvent.query.filter_by(user_id=request.current_user.id).order_by(DownloadEvent.downloaded_at.desc()).limit(200).all()
-        return jsonify(
-            [
+        rows = (
+            DownloadHistory.query.filter_by(user_id=request.current_user.id)
+            .order_by(DownloadHistory.downloaded_at.desc())
+            .limit(200)
+            .all()
+        )
+        payload = []
+        for row in rows:
+            ebook = Ebook.query.get(row.ebook_id)
+            payload.append(
                 {
+                    "history_id": row.id,
                     "ebook_id": row.ebook_id,
-                    "file_id": row.ebook_file_id,
+                    "ebook_title": ebook.title if ebook else None,
+                    "code_id": row.code_id,
+                    "version_label": row.version_label,
                     "downloaded_at": row.downloaded_at.isoformat(),
                 }
-                for row in rows
-            ]
-        )
+            )
+        return jsonify(payload)
+
+    @app.get("/admin/download-histories")
+    @require_auth(role="admin")
+    def admin_download_histories():
+        user_id = request.args.get("user_id", type=int)
+        ebook_id = request.args.get("ebook_id", type=int)
+        query = DownloadHistory.query
+        if user_id:
+            query = query.filter(DownloadHistory.user_id == user_id)
+        if ebook_id:
+            query = query.filter(DownloadHistory.ebook_id == ebook_id)
+
+        rows = query.order_by(DownloadHistory.downloaded_at.desc()).limit(1000).all()
+        payload = []
+        for row in rows:
+            ebook = Ebook.query.get(row.ebook_id)
+            payload.append(
+                {
+                    "history_id": row.id,
+                    "user_id": row.user_id,
+                    "ebook_id": row.ebook_id,
+                    "ebook_title": ebook.title if ebook else None,
+                    "code_id": row.code_id,
+                    "version_label": row.version_label,
+                    "downloaded_at": row.downloaded_at.isoformat(),
+                }
+            )
+        return jsonify(payload)
 
     @app.get("/admin/download-failure-alerts")
     @require_auth(role="admin")
