@@ -2,10 +2,46 @@
 <html>
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Ebook Store Auth</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
+  <header class="site-header">
+    <div class="header-row">
+      <a class="logo" href="/">📚 EbookStore</a>
+      <button id="menu-toggle" class="icon-btn" aria-label="Toggle navigation">☰</button>
+      <nav id="main-nav" class="main-nav">
+        <a href="/">Home</a>
+        <a href="/categories">Categories</a>
+        <a href="/profile/reviews">Profile</a>
+      </nav>
+      <div class="header-actions">
+        <label class="theme-toggle">
+          <input type="checkbox" id="theme-toggle" />
+          <span>Dark</span>
+        </label>
+        <div class="user-menu-wrap">
+          <button id="user-menu-btn" class="icon-btn">User ▾</button>
+          <div id="user-menu" class="user-menu">
+            <a href="/profile/reviews">My profile</a>
+            <button id="logout-btn" type="button">Logout</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="utility-row" class="utility-row">
+      <form id="search-form" class="compact-form">
+        <input name="q" id="search-input" type="search" placeholder="Search ebooks, author, keywords..." />
+        <button type="submit">Search</button>
+      </form>
+      <form id="code-form" class="compact-form">
+        <input name="code_value" type="text" placeholder="Enter access code" required />
+        <button type="submit">Unlock</button>
+      </form>
+    </div>
+  </header>
+
   <main>
     <h1>User Authentication</h1>
     <form id="register-form">
