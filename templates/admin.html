@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Admin Login</title>
+  <title>Admin Dashboard</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
@@ -13,8 +13,8 @@
       <button id="menu-toggle" class="icon-btn" aria-label="Toggle navigation">☰</button>
       <nav id="main-nav" class="main-nav">
         <a href="/">Home</a>
-        <a href="/categories">Categories</a>
-        <a href="/admin">Profile</a>
+        <a href="#overview-panel">Overview</a>
+        <a href="#audit-panel">Audit logs</a>
       </nav>
       <div class="header-actions">
         <label class="theme-toggle">
@@ -23,27 +23,103 @@
         </label>
       </div>
     </div>
-    <div id="utility-row" class="utility-row">
-      <form id="search-form" class="compact-form">
-        <input name="q" id="search-input" type="search" placeholder="Search ebooks..." />
-        <button type="submit">Search</button>
-      </form>
-      <form id="code-form" class="compact-form">
-        <input name="code_value" type="text" placeholder="Code" required />
-        <button type="submit">Check</button>
-      </form>
-    </div>
   </header>
 
-  <main>
-    <h1>Admin Authentication</h1>
-    <form id="admin-login-form">
-      <input name="email" type="email" placeholder="Admin email" required>
-      <input name="password" type="password" placeholder="Admin password" required>
-      <button type="submit">Admin login</button>
-    </form>
-    <pre id="admin-output"></pre>
+  <main class="admin-layout">
+    <aside id="admin-sidebar" class="admin-sidebar">
+      <button class="sidebar-link active" data-panel="overview-panel" type="button">Overview</button>
+      <button class="sidebar-link" data-panel="ebooks-panel" type="button">Ebooks</button>
+      <button class="sidebar-link" data-panel="codes-panel" type="button">Codes</button>
+      <button class="sidebar-link" data-panel="users-panel" type="button">Users</button>
+      <button class="sidebar-link" data-panel="reports-panel" type="button">Reports & exports</button>
+      <button class="sidebar-link" data-panel="audit-panel" type="button">Audit logs</button>
+      <button class="sidebar-link" data-panel="maintenance-panel" type="button">Maintenance</button>
+    </aside>
+
+    <section class="admin-content">
+      <section id="overview-panel" class="admin-panel active">
+        <h1>Admin Control Center</h1>
+        <div id="overview-stats" class="stats-grid"></div>
+        <div class="charts-grid">
+          <article class="section-mini">
+            <h3>Downloads trend</h3>
+            <div id="line-chart" class="chart-bars"></div>
+          </article>
+          <article class="section-mini">
+            <h3>Top ebooks</h3>
+            <div id="bar-chart" class="chart-bars"></div>
+          </article>
+          <article class="section-mini">
+            <h3>Code status</h3>
+            <div id="pie-chart" class="pie-chart"></div>
+          </article>
+        </div>
+        <article class="section-mini">
+          <h3>Recent activity feed</h3>
+          <div id="recent-activity" class="list-stack"></div>
+        </article>
+      </section>
+
+      <section id="ebooks-panel" class="admin-panel">
+        <h2>Ebook management</h2>
+        <form id="ebook-filter-form" class="compact-form stacked-mobile">
+          <input name="q" type="search" placeholder="Search title/author" />
+          <select name="featured">
+            <option value="">All</option>
+            <option value="true">Featured</option>
+          </select>
+          <button type="submit">Filter</button>
+        </form>
+        <div id="ebooks-list" class="list-stack"></div>
+      </section>
+
+      <section id="codes-panel" class="admin-panel">
+        <h2>Code management</h2>
+        <form id="generate-code-form" class="compact-form stacked-mobile">
+          <input name="ebook_id" type="number" min="1" placeholder="Ebook ID" required />
+          <input name="expires_minutes" type="number" min="1" placeholder="Expiry (minutes)" required />
+          <button type="submit">Generate code</button>
+        </form>
+        <div id="codes-list" class="list-stack"></div>
+      </section>
+
+      <section id="users-panel" class="admin-panel">
+        <h2>User management</h2>
+        <div id="users-list" class="list-stack"></div>
+      </section>
+
+      <section id="reports-panel" class="admin-panel">
+        <h2>Reports & exports</h2>
+        <div class="inline-actions">
+          <a class="download-link" href="/admin/exports/downloads.csv">Export downloads CSV</a>
+          <a class="download-link" href="/admin/exports/code-usage.csv">Export code usage CSV</a>
+          <a class="download-link" href="/admin/exports/user-activity.csv">Export user activity CSV</a>
+        </div>
+        <article class="section-mini">
+          <h3>Summary</h3>
+          <pre id="summary-output"></pre>
+        </article>
+      </section>
+
+      <section id="audit-panel" class="admin-panel">
+        <h2>Audit logs</h2>
+        <div id="audit-list" class="list-stack"></div>
+      </section>
+
+      <section id="maintenance-panel" class="admin-panel">
+        <h2>Maintenance & controls</h2>
+        <form id="maintenance-form" class="section-mini">
+          <label><input type="checkbox" name="enabled" /> Enable maintenance mode</label>
+          <label><input type="checkbox" name="disable_downloads" /> Disable downloads</label>
+          <label><input type="checkbox" name="disable_code_entry" /> Disable code entry</label>
+          <input type="text" name="message" placeholder="Maintenance message" />
+          <button type="submit">Apply maintenance settings</button>
+        </form>
+        <pre id="admin-output"></pre>
+      </section>
+    </section>
   </main>
+
   <script src="/static/admin.js"></script>
 </body>
 </html>

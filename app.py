@@ -779,6 +779,7 @@ def create_app():
         return render_template("index.html")
 
     @app.get("/admin")
+    @require_auth(role="admin")
     def admin_page():
         return render_template("admin.html")
 
