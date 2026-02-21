@@ -9,12 +9,12 @@
 <body>
   <header class="site-header">
     <div class="header-row">
-      <a class="logo" href="/">📚 EbookStore</a>
+      <a class="logo" href="#top">📚 EbookStore</a>
       <button id="menu-toggle" class="icon-btn" aria-label="Toggle navigation">☰</button>
       <nav id="main-nav" class="main-nav">
-        <a href="/">Home</a>
-        <a href="/categories">Categories</a>
-        <a href="/profile/reviews">Profile</a>
+        <a href="#top">Home</a>
+        <a href="#categories-section">Categories</a>
+        <a href="#profile-anchor">Profile</a>
       </nav>
       <div class="header-actions">
         <label class="theme-toggle">
@@ -24,7 +24,7 @@
         <div class="user-menu-wrap">
           <button id="user-menu-btn" class="icon-btn">User ▾</button>
           <div id="user-menu" class="user-menu">
-            <a href="/profile/reviews">My profile</a>
+            <a href="#profile-anchor">My profile</a>
             <button id="logout-btn" type="button">Logout</button>
           </div>
         </div>
@@ -42,25 +42,72 @@
     </div>
   </header>
 
-  <main>
-    <h1>User Authentication</h1>
-    <form id="register-form">
-      <h2>Register</h2>
-      <input name="email" type="email" placeholder="Email" required>
-      <input name="password" type="password" placeholder="Password" required>
-      <button type="submit">Create account</button>
-    </form>
+  <main id="top">
+    <section class="hero" id="hero-section">
+      <div class="hero-carousel">
+        <article class="hero-slide active" data-slide>
+          <p class="badge">New Release</p>
+          <h1>Discover your next favorite ebook</h1>
+          <p>Explore hand-picked collections, top downloads, and fresh launches.</p>
+          <a class="hero-link" href="#featured-section">Browse featured →</a>
+        </article>
+        <article class="hero-slide" data-slide>
+          <p class="badge">Top Downloads</p>
+          <h1>Most downloaded this week</h1>
+          <p>See what readers are unlocking right now.</p>
+          <a class="hero-link" href="#featured-section">See top books →</a>
+        </article>
+        <article class="hero-slide" data-slide>
+          <p class="badge">Featured Collection</p>
+          <h1>Curated picks for every mood</h1>
+          <p>From fiction to productivity, quickly jump into categories.</p>
+          <a class="hero-link" href="#categories-section">Explore categories →</a>
+        </article>
+      </div>
+      <div class="hero-dots" id="hero-dots"></div>
+    </section>
 
-    <form id="login-form">
-      <h2>Login</h2>
-      <input name="email" type="email" placeholder="Email" required>
-      <input name="password" type="password" placeholder="Password" required>
-      <label id="captcha-label"></label>
-      <input name="captcha_answer" type="text" placeholder="Captcha answer" required>
-      <button type="submit">Login</button>
-    </form>
+    <section id="code-cta" class="code-cta">
+      <h2>Have a download code?</h2>
+      <p>Enter your code above in the header to unlock your ebook instantly.</p>
+      <a class="hero-link" href="#top">Go to code entry ↑</a>
+    </section>
 
-    <pre id="output"></pre>
+    <section id="featured-section" class="section-block">
+      <h2>Featured ebooks</h2>
+      <div id="featured-grid" class="featured-grid"></div>
+    </section>
+
+    <section id="categories-section" class="section-block">
+      <h2>Browse categories</h2>
+      <div id="categories-grid" class="categories-grid"></div>
+    </section>
+
+    <section id="latest-reviews" class="section-block">
+      <h2>Latest reviews</h2>
+      <div id="reviews-list" class="reviews-list"></div>
+    </section>
+
+    <section id="profile-anchor" class="section-block auth-section">
+      <h2>User Authentication</h2>
+      <form id="register-form">
+        <h3>Register</h3>
+        <input name="email" type="email" placeholder="Email" required>
+        <input name="password" type="password" placeholder="Password" required>
+        <button type="submit">Create account</button>
+      </form>
+
+      <form id="login-form">
+        <h3>Login</h3>
+        <input name="email" type="email" placeholder="Email" required>
+        <input name="password" type="password" placeholder="Password" required>
+        <label id="captcha-label"></label>
+        <input name="captcha_answer" type="text" placeholder="Captcha answer" required>
+        <button type="submit">Login</button>
+      </form>
+
+      <pre id="output"></pre>
+    </section>
   </main>
   <script src="/static/auth.js"></script>
 </body>
