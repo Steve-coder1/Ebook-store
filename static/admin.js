@@ -2,6 +2,7 @@ const output = document.getElementById('admin-output');
 
 function show(data) {
   if (output) output.textContent = JSON.stringify(data, null, 2);
+  if (window.pushToast) window.pushToast(data?.message || data?.error || "Admin action completed", data?.error ? "error" : "info");
 }
 
 function setupHeaderUX() {
@@ -140,6 +141,20 @@ async function loadSummaryAndAudit() {
   `).join('') || '<p>No audit events recorded.</p>';
 }
 
+
+async function loadNotifications() {
+  const res = await fetch('/admin/notifications');
+  const rows = await res.json();
+  const wrap = document.getElementById('notification-list');
+  if (!wrap) return;
+  wrap.innerHTML = (rows || []).slice(0, 20).map((n) => `
+    <article class="list-item">
+      <strong>${n.message}</strong>
+      <small>${n.created_at}</small>
+    </article>
+  `).join('') || '<p>No notifications published yet.</p>';
+}
+
 function setupForms() {
   document.getElementById('ebook-filter-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -159,6 +174,18 @@ function setupForms() {
     }
   });
 
+  document.getElementById('notification-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const res = await fetch('/admin/notifications', { method: 'POST', body: fd });
+    show(await res.json());
+    if (res.ok) {
+      e.target.reset();
+      loadNotifications();
+      if (window.initSiteNotifications) window.initSiteNotifications();
+    }
+  });
+
   document.getElementById('maintenance-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -167,6 +194,7 @@ function setupForms() {
     fd.set('disable_code_entry', fd.get('disable_code_entry') ? 'true' : 'false');
     const res = await fetch('/admin/maintenance/toggle', { method: 'POST', body: fd });
     show(await res.json());
+    if (window.initSiteNotifications) window.initSiteNotifications();
   });
 }
 
@@ -176,10 +204,13 @@ async function boot() {
   setupForms();
 
   try {
-    await Promise.all([loadOverview(), loadEbooks(), loadCodes(), loadUsers(), loadSummaryAndAudit()]);
+    await Promise.all([loadOverview(), loadEbooks(), loadCodes(), loadUsers(), loadSummaryAndAudit(), loadNotifications()]);
   } catch (err) {
     show({ error: 'Failed to load one or more admin sections.', details: String(err) });
   }
 }
 
 boot();
+
+
+if (window.initSiteNotifications) window.initSiteNotifications();

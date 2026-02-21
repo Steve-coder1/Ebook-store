@@ -25,6 +25,9 @@
     </div>
   </header>
 
+  <div id="site-banner-stack" class="site-banner-stack"></div>
+  <div id="toast-stack" class="toast-stack"></div>
+
   <main class="admin-layout">
     <aside id="admin-sidebar" class="admin-sidebar">
       <button class="sidebar-link active" data-panel="overview-panel" type="button">Overview</button>
@@ -115,11 +118,18 @@
           <input type="text" name="message" placeholder="Maintenance message" />
           <button type="submit">Apply maintenance settings</button>
         </form>
+        <form id="notification-form" class="section-mini">
+          <h3>Site-wide notification</h3>
+          <input type="text" name="message" placeholder="Message shown in top banners" required />
+          <button type="submit">Publish notification</button>
+        </form>
+        <div id="notification-list" class="list-stack"></div>
         <pre id="admin-output"></pre>
       </section>
     </section>
   </main>
 
+  <script src="/static/notifications.js"></script>
   <script src="/static/admin.js"></script>
 </body>
 </html>

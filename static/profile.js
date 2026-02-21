@@ -230,3 +230,6 @@ async function initProfileData() {
 initThemeAndMenu();
 setupTabsAndCollapsibles();
 initProfileData();
+
+
+if (window.initSiteNotifications) window.initSiteNotifications();

@@ -4,6 +4,7 @@ let captchaToken = '';
 
 function show(data) {
   output.textContent = JSON.stringify(data, null, 2);
+  if (window.pushToast) window.pushToast(data?.message || data?.error || "Request completed", data?.error ? "error" : "info");
 }
 
 async function refreshCaptcha() {
@@ -261,3 +262,6 @@ setupHeroCarousel();
 loadHomepageSections();
 setupCatalog();
 refreshCaptcha();
+
+
+if (window.initSiteNotifications) window.initSiteNotifications();

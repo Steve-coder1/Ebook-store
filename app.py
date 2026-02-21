@@ -931,6 +931,37 @@ def create_app():
         user = request.current_user
         return jsonify({"id": user.id, "email": user.email, "role": user.role})
 
+    @app.get("/notifications/active")
+    def active_notifications():
+        system_rows = SiteNotification.query.filter_by(is_active=True).order_by(SiteNotification.created_at.desc()).limit(5).all()
+        featured = Ebook.query.filter_by(is_active=True, is_featured=True).order_by(Ebook.created_at.desc()).limit(5).all()
+
+        maintenance_enabled = get_setting("maintenance_mode", "false").lower() == "true"
+        maintenance_message = get_setting("maintenance_message", "Maintenance in progress")
+
+        return jsonify(
+            {
+                "maintenance": {"enabled": maintenance_enabled, "message": maintenance_message},
+                "system": [
+                    {
+                        "id": row.id,
+                        "message": row.message,
+                        "created_at": row.created_at.isoformat(),
+                    }
+                    for row in system_rows
+                ],
+                "promotions": [
+                    {
+                        "id": ebook.id,
+                        "title": ebook.title,
+                        "author": ebook.author,
+                        "slug": ebook.slug,
+                    }
+                    for ebook in featured
+                ],
+            }
+        )
+
     @app.post("/admin/create")
     def create_admin():
         data = as_data()

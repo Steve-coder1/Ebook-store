@@ -169,3 +169,6 @@ async function initEbookPage() {
 applyThemeAndMenu();
 setupCollapsibles();
 initEbookPage();
+
+
+if (window.initSiteNotifications) window.initSiteNotifications();
