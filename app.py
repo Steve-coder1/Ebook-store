@@ -207,6 +207,30 @@ class CodeAttempt(db.Model):
     successful = db.Column(db.Boolean, nullable=False, default=False)
 
 
+class Review(db.Model):
+    __tablename__ = "reviews"
+
+    id = db.Column(db.Integer, primary_key=True)
+    ebook_id = db.Column(db.Integer, db.ForeignKey("ebooks.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    rating = db.Column(db.Integer, nullable=False)
+    review_text = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class ReviewAttemptLog(db.Model):
+    __tablename__ = "review_attempt_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    ebook_id = db.Column(db.Integer, db.ForeignKey("ebooks.id"), nullable=True, index=True)
+    ip_address = db.Column(db.String(64), nullable=False, index=True)
+    attempted_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    was_successful = db.Column(db.Boolean, nullable=False, default=False)
+    reason = db.Column(db.String(255), nullable=True)
+
+
 def create_app():
     app = Flask(__name__)
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///ebook_store.db")
@@ -223,6 +247,8 @@ def create_app():
     app.config["CODE_ATTEMPT_MAX"] = int(os.getenv("CODE_ATTEMPT_MAX", "8"))
     app.config["CODE_CAPTCHA_THRESHOLD"] = int(os.getenv("CODE_CAPTCHA_THRESHOLD", "3"))
     app.config["DOWNLOAD_SESSION_TTL_MINUTES"] = int(os.getenv("DOWNLOAD_SESSION_TTL_MINUTES", "15"))
+    app.config["REVIEW_RATE_LIMIT_WINDOW_MINUTES"] = int(os.getenv("REVIEW_RATE_LIMIT_WINDOW_MINUTES", "10"))
+    app.config["REVIEW_RATE_LIMIT_MAX_ATTEMPTS"] = int(os.getenv("REVIEW_RATE_LIMIT_MAX_ATTEMPTS", "5"))
 
     project_root = Path(__file__).resolve().parent
     storage_root = Path(os.getenv("PRIVATE_STORAGE_ROOT", project_root / "private_storage")).resolve()
@@ -336,6 +362,10 @@ def create_app():
 
     def ebook_to_dict(ebook, include_files=False, include_stats=False):
         category = Category.query.get(ebook.category_id) if ebook.category_id else None
+        avg_rating, review_count = db.session.query(
+            func.avg(Review.rating),
+            func.count(Review.id),
+        ).filter(Review.ebook_id == ebook.id).first()
         payload = {
             "id": ebook.id,
             "title": ebook.title,
@@ -347,6 +377,8 @@ def create_app():
             "preview_available": bool(ebook.preview_file_path),
             "is_featured": ebook.is_featured,
             "is_active": ebook.is_active,
+            "average_rating": round(float(avg_rating), 2) if avg_rating is not None else None,
+            "review_count": int(review_count or 0),
             "created_at": ebook.created_at.isoformat(),
             "updated_at": ebook.updated_at.isoformat(),
         }
@@ -465,6 +497,27 @@ def create_app():
                 was_successful=success,
                 download_completed=completed,
                 error_reason=reason,
+            )
+        )
+        db.session.commit()
+
+    def review_submission_rate_limited(user_id):
+        window_start = utcnow() - timedelta(minutes=app.config["REVIEW_RATE_LIMIT_WINDOW_MINUTES"])
+        attempts = ReviewAttemptLog.query.filter(
+            ReviewAttemptLog.attempted_at >= window_start,
+            ReviewAttemptLog.was_successful.is_(False),
+            (ReviewAttemptLog.user_id == user_id) | (ReviewAttemptLog.ip_address == get_client_ip()),
+        ).count()
+        return attempts >= app.config["REVIEW_RATE_LIMIT_MAX_ATTEMPTS"]
+
+    def log_review_attempt(user_id, ebook_id, success, reason=None):
+        db.session.add(
+            ReviewAttemptLog(
+                user_id=user_id,
+                ebook_id=ebook_id,
+                ip_address=get_client_ip(),
+                was_successful=success,
+                reason=reason,
             )
         )
         db.session.commit()
@@ -876,6 +929,167 @@ def create_app():
             "bundle_file_list_preview": files_preview,
         }
         return jsonify(payload)
+
+    @app.get("/ebooks/<int:ebook_id>/reviews")
+    def list_reviews(ebook_id):
+        ebook = Ebook.query.get_or_404(ebook_id)
+        if not ebook.is_active:
+            abort(404)
+        rows = Review.query.filter_by(ebook_id=ebook.id).order_by(Review.created_at.desc()).all()
+        return jsonify(
+            [
+                {
+                    "id": row.id,
+                    "ebook_id": row.ebook_id,
+                    "user_id": row.user_id,
+                    "rating": row.rating,
+                    "review_text": row.review_text,
+                    "created_at": row.created_at.isoformat(),
+                    "updated_at": row.updated_at.isoformat(),
+                }
+                for row in rows
+            ]
+        )
+
+    @app.post("/ebooks/<int:ebook_id>/reviews")
+    @require_auth()
+    def create_review(ebook_id):
+        ebook = Ebook.query.get_or_404(ebook_id)
+        if not ebook.is_active:
+            abort(404)
+        if review_submission_rate_limited(request.current_user.id):
+            log_review_attempt(request.current_user.id, ebook_id, False, "rate_limited")
+            return jsonify({"error": "Too many review attempts. Try again later."}), 429
+
+        data = as_data()
+        try:
+            rating = int(data.get("rating"))
+        except (TypeError, ValueError):
+            log_review_attempt(request.current_user.id, ebook_id, False, "invalid_rating")
+            return jsonify({"error": "Rating must be an integer from 1 to 5."}), 400
+        if rating < 1 or rating > 5:
+            log_review_attempt(request.current_user.id, ebook_id, False, "rating_out_of_range")
+            return jsonify({"error": "Rating must be between 1 and 5."}), 400
+
+        existing = Review.query.filter_by(ebook_id=ebook_id, user_id=request.current_user.id).first()
+        if existing:
+            log_review_attempt(request.current_user.id, ebook_id, False, "duplicate_review")
+            return jsonify({"error": "You have already reviewed this ebook."}), 409
+
+        review = Review(
+            ebook_id=ebook_id,
+            user_id=request.current_user.id,
+            rating=rating,
+            review_text=(data.get("review_text") or "").strip() or None,
+        )
+        db.session.add(review)
+        db.session.commit()
+        log_review_attempt(request.current_user.id, ebook_id, True)
+        return jsonify({"message": "Review posted", "review_id": review.id}), 201
+
+    @app.patch("/ebooks/<int:ebook_id>/reviews/<int:review_id>")
+    @require_auth()
+    def edit_review(ebook_id, review_id):
+        review = Review.query.filter_by(id=review_id, ebook_id=ebook_id, user_id=request.current_user.id).first()
+        if not review:
+            return jsonify({"error": "Review not found"}), 404
+
+        data = as_data()
+        if "rating" in data:
+            try:
+                rating = int(data.get("rating"))
+            except (TypeError, ValueError):
+                return jsonify({"error": "Rating must be an integer from 1 to 5."}), 400
+            if rating < 1 or rating > 5:
+                return jsonify({"error": "Rating must be between 1 and 5."}), 400
+            review.rating = rating
+        if "review_text" in data:
+            review.review_text = (data.get("review_text") or "").strip() or None
+
+        db.session.commit()
+        return jsonify({"message": "Review updated"})
+
+    @app.delete("/admin/reviews/<int:review_id>")
+    @require_auth(role="admin")
+    def admin_delete_review(review_id):
+        review = Review.query.get_or_404(review_id)
+        db.session.delete(review)
+        db.session.commit()
+        return jsonify({"message": "Review deleted"})
+
+    @app.get("/profile/reviews")
+    @require_auth()
+    def profile_reviews():
+        rows = Review.query.filter_by(user_id=request.current_user.id).order_by(Review.created_at.desc()).all()
+        payload = []
+        for row in rows:
+            ebook = Ebook.query.get(row.ebook_id)
+            payload.append(
+                {
+                    "review_id": row.id,
+                    "ebook_id": row.ebook_id,
+                    "ebook_title": ebook.title if ebook else None,
+                    "rating": row.rating,
+                    "review_text": row.review_text,
+                    "created_at": row.created_at.isoformat(),
+                    "updated_at": row.updated_at.isoformat(),
+                    "can_edit": True,
+                }
+            )
+        return jsonify(payload)
+
+    @app.get("/admin/reviews/analytics")
+    @require_auth(role="admin")
+    def review_analytics():
+        most_reviewed_rows = (
+            db.session.query(Review.ebook_id, func.count(Review.id).label("review_count"))
+            .group_by(Review.ebook_id)
+            .order_by(func.count(Review.id).desc())
+            .limit(10)
+            .all()
+        )
+        highest_rated_rows = (
+            db.session.query(Review.ebook_id, func.avg(Review.rating).label("avg_rating"), func.count(Review.id).label("cnt"))
+            .group_by(Review.ebook_id)
+            .having(func.count(Review.id) >= 1)
+            .order_by(func.avg(Review.rating).desc(), func.count(Review.id).desc())
+            .limit(10)
+            .all()
+        )
+        recent = Review.query.order_by(Review.created_at.desc()).limit(20).all()
+
+        def ebook_title(eid):
+            e = Ebook.query.get(eid)
+            return e.title if e else None
+
+        return jsonify(
+            {
+                "most_reviewed_ebooks": [
+                    {"ebook_id": eid, "ebook_title": ebook_title(eid), "review_count": int(cnt)}
+                    for eid, cnt in most_reviewed_rows
+                ],
+                "highest_rated_ebooks": [
+                    {
+                        "ebook_id": eid,
+                        "ebook_title": ebook_title(eid),
+                        "average_rating": round(float(avg), 2) if avg is not None else None,
+                        "review_count": int(cnt),
+                    }
+                    for eid, avg, cnt in highest_rated_rows
+                ],
+                "recent_review_activity": [
+                    {
+                        "review_id": r.id,
+                        "ebook_id": r.ebook_id,
+                        "ebook_title": ebook_title(r.ebook_id),
+                        "user_id": r.user_id,
+                        "rating": r.rating,
+                        "created_at": r.created_at.isoformat(),
+                    }
+                    for r in recent
+                ],
+            }
+        )
 
     @app.post("/favorites/<int:ebook_id>")
     @require_auth()

@@ -1,10 +1,11 @@
-# Ebook Store - Systems 1, 2, 3 & 4
+# Ebook Store - Systems 1, 2, 3, 4 & 5
 
 Flask backend implementing:
 - **System 1**: authentication (users/admin), sessions, password reset, login protections.
 - **System 2**: ebook content engine (categories, ebooks, files, versions, favorites, preview, secure downloads).
 - **System 3**: code-key gatekeeper (single-use code generation, validation, expiry, usage logging, and brute-force controls).
 - **System 4**: controlled secure download delivery sessions (temporary links, multi-file handling, and delivery analytics).
+- **System 5**: reviews and ratings engine with anti-abuse controls and analytics.
 
 ## Implemented capabilities
 
@@ -54,6 +55,15 @@ Flask backend implementing:
 - Download history endpoint for authenticated users (`/downloads/history`)
 - Admin failure-rate alert endpoint for spike detection (`/admin/download-failure-alerts`)
 
+### Reviews & Ratings (System 5)
+- Reviews table (`reviews`) with one review per user per ebook, rating (1-5), review text, timestamps
+- Review submission endpoint with login requirement and duplicate prevention
+- Review editing by the same user and admin deletion controls
+- Rating aggregation automatically included in ebook payloads (`average_rating`, `review_count`) for listings/details/home-style sections
+- Anti-abuse controls with review attempt rate-limiting and suspicious attempt logging (`review_attempt_logs`)
+- User profile integration endpoint to list user-posted reviews with linked ebook titles (`/profile/reviews`)
+- Admin analytics endpoint (`/admin/reviews/analytics`) for most reviewed, highest rated, and recent review activity
+
 ## Database tables
 - `users`
 - `password_reset_tokens`
@@ -71,6 +81,8 @@ Flask backend implementing:
 - `download_sessions`
 - `download_attempt_logs`
 - `download_token_uses`
+- `reviews`
+- `review_attempt_logs`
 
 ## Run
 ```bash
@@ -88,5 +100,6 @@ Open:
 - Ebook and preview files are stored in `PRIVATE_STORAGE_ROOT` (default `./private_storage`) and are not served as static files.
 - User-auth downloads use signed short-lived tokens (`/ebooks/<ebook_id>/download-link/<file_id>` -> `/download/<token>`).
 - Code-validation returns session-scoped file links and optional bundle links (`/download/code/<token>`, `/download/code/bundle/<token>`).
+- Review endpoints enforce per-user uniqueness and submission rate limits.
 - Set `SESSION_COOKIE_SECURE=true` in HTTPS deployments.
 - Configure a stable production `SECRET_KEY` and integrate a real email provider for password reset delivery.
