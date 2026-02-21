@@ -172,6 +172,31 @@ main { max-width: 1040px; margin: 1.25rem auto 2rem; padding: 0 1rem; }
 }
 .review-item small { color: var(--muted); }
 
+
+.catalog-header { display:flex; justify-content:space-between; align-items:center; gap:.75rem; }
+.catalog-actions { display:flex; gap:.75rem; align-items:center; }
+.view-switch { display:flex; gap:.35rem; align-items:center; color:var(--muted); font-size:.92rem; }
+.catalog-search { margin-top:.75rem; display:flex; gap:.5rem; }
+.catalog-filters {
+  display:grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap:.5rem;
+  margin-top:.75rem;
+}
+.catalog-grid {
+  margin-top:.9rem;
+  display:grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap:.7rem;
+}
+.catalog-grid.list { grid-template-columns: 1fr; }
+.catalog-grid.list .book-card { display:flex; }
+.catalog-grid.list .book-cover { width: 180px; height: auto; min-height: 120px; }
+.catalog-grid.list .book-meta { flex:1; }
+.catalog-pagination { margin-top:.85rem; display:flex; gap:.35rem; flex-wrap:wrap; }
+.catalog-pagination button { min-width: 38px; }
+.catalog-pagination button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
 .auth-section form { display: grid; gap: 0.5rem; margin-bottom: 1rem; }
 input, button { padding: 0.6rem; font-size: 1rem; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
 button { cursor: pointer; }
@@ -181,6 +206,8 @@ pre { white-space: pre-wrap; background: #111; color: #d4ffd4; padding: 0.75rem;
 @media (max-width: 920px) {
   .featured-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .categories-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .catalog-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .catalog-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 768px) {
   #menu-toggle { display: inline-block; }
@@ -190,6 +217,9 @@ pre { white-space: pre-wrap; background: #111; color: #d4ffd4; padding: 0.75rem;
   .utility-row { display: none; flex-direction: column; }
   .utility-row.open { display: flex; }
   .header-actions { margin-left: 0; }
-  .featured-grid, .categories-grid { grid-template-columns: 1fr; }
+  .featured-grid, .categories-grid, .catalog-grid { grid-template-columns: 1fr; }
   .hero-carousel { min-height: 220px; }
+  .catalog-search { flex-direction: column; }
+  .catalog-filters { display: none; grid-template-columns: 1fr; }
+  .catalog-filters.open { display: grid; }
 }

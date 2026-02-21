@@ -142,6 +142,104 @@ async function loadHomepageSections() {
   }
 }
 
+
+function renderCatalog(items) {
+  const grid = document.getElementById('catalog-grid');
+  grid.innerHTML = (items || []).map((ebook) => `
+    <article class="book-card">
+      <div class="book-cover" loading="lazy">${ebook.is_featured ? 'Featured' : 'Ebook'}</div>
+      <div class="book-meta">
+        <h3>${ebook.title || 'Untitled'}</h3>
+        <p>${ebook.author || 'Unknown author'}</p>
+        <div class="book-hover">
+          <small>${starString(ebook.average_rating || 0)}</small>
+          <a class="hero-link" href="/ebook/${ebook.slug || ebook.id}">Open details</a>
+        </div>
+      </div>
+    </article>
+  `).join('') || '<p>No ebooks found with current filters.</p>';
+}
+
+function renderPagination(meta, onPage) {
+  const wrap = document.getElementById('catalog-pagination');
+  wrap.innerHTML = '';
+  if (!meta || !meta.pages || meta.pages <= 1) return;
+  for (let p = 1; p <= meta.pages; p += 1) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = p;
+    if (p === meta.page) btn.classList.add('active');
+    btn.addEventListener('click', () => onPage(p));
+    wrap.appendChild(btn);
+  }
+}
+
+function setupCatalog() {
+  const category = document.getElementById('filter-category');
+  const author = document.getElementById('filter-author');
+  const rating = document.getElementById('filter-rating');
+  const featured = document.getElementById('filter-featured');
+  const sort = document.getElementById('filter-sort');
+  const searchInput = document.getElementById('catalog-search-input');
+  const filtersWrap = document.getElementById('catalog-filters');
+  const filterToggle = document.getElementById('filter-toggle');
+  const listToggle = document.getElementById('list-view-toggle');
+  const grid = document.getElementById('catalog-grid');
+
+  if (!grid) return;
+
+  let page = 1;
+
+  async function loadCategoriesIntoFilter() {
+    try {
+      const res = await fetch('/categories');
+      const items = await res.json();
+      category.innerHTML = '<option value="">All categories</option>' + (items || []).map((c) => `<option value="${c.slug}">${c.name}</option>`).join('');
+    } catch (_) {
+      // ignore and keep default
+    }
+  }
+
+  async function loadCatalog() {
+    const params = new URLSearchParams();
+    if (category.value) params.set('category', category.value);
+    if (author.value) params.set('author', author.value);
+    if (rating.value) params.set('min_rating', rating.value);
+    if (featured.value) params.set('featured', featured.value);
+    if (sort.value) params.set('sort', sort.value);
+    if (searchInput.value) params.set('q', searchInput.value);
+    params.set('page', String(page));
+    params.set('per_page', '9');
+
+    const res = await fetch(`/ebooks?${params.toString()}`);
+    const data = await res.json();
+    renderCatalog(data.items || []);
+    renderPagination(data.pagination, (next) => {
+      page = next;
+      loadCatalog();
+    });
+  }
+
+  document.getElementById('catalog-search-form')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    page = 1;
+    loadCatalog();
+  });
+
+  [category, author, rating, featured, sort].forEach((el) => {
+    el?.addEventListener('change', () => {
+      page = 1;
+      loadCatalog();
+    });
+  });
+
+  filterToggle?.addEventListener('click', () => filtersWrap?.classList.toggle('open'));
+  listToggle?.addEventListener('change', () => grid.classList.toggle('list', listToggle.checked));
+
+  loadCategoriesIntoFilter();
+  loadCatalog();
+}
+
 document.getElementById('register-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const formData = new FormData(e.target);
@@ -161,4 +259,5 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 setupHeaderUX();
 setupHeroCarousel();
 loadHomepageSections();
+setupCatalog();
 refreshCaptcha();

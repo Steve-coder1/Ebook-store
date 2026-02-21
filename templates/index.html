@@ -83,6 +83,50 @@
       <div id="categories-grid" class="categories-grid"></div>
     </section>
 
+    <section id="catalog-section" class="section-block">
+      <div class="catalog-header">
+        <h2>Ebook catalog</h2>
+        <div class="catalog-actions">
+          <button id="filter-toggle" type="button" class="icon-btn">Filters ▾</button>
+          <label class="view-switch">
+            <span>List view</span>
+            <input type="checkbox" id="list-view-toggle" />
+          </label>
+        </div>
+      </div>
+
+      <form id="catalog-search-form" class="catalog-search">
+        <input id="catalog-search-input" type="search" placeholder="Search title, author, description..." />
+        <button type="submit">Search catalog</button>
+      </form>
+
+      <div id="catalog-filters" class="catalog-filters">
+        <select id="filter-category">
+          <option value="">All categories</option>
+        </select>
+        <input id="filter-author" type="text" placeholder="Author" />
+        <select id="filter-rating">
+          <option value="">Any rating</option>
+          <option value="4">4★ and up</option>
+          <option value="3">3★ and up</option>
+          <option value="2">2★ and up</option>
+        </select>
+        <select id="filter-featured">
+          <option value="">All books</option>
+          <option value="true">Featured only</option>
+        </select>
+        <select id="filter-sort">
+          <option value="newest">Newest</option>
+          <option value="most_downloaded">Most downloaded</option>
+          <option value="highest_rated">Highest rated</option>
+          <option value="alphabetical">Alphabetical</option>
+        </select>
+      </div>
+
+      <div id="catalog-grid" class="catalog-grid"></div>
+      <div id="catalog-pagination" class="catalog-pagination"></div>
+    </section>
+
     <section id="latest-reviews" class="section-block">
       <h2>Latest reviews</h2>
       <div id="reviews-list" class="reviews-list"></div>
