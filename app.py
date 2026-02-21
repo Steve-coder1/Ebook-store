@@ -68,6 +68,15 @@ class LoginAttempt(db.Model):
     successful = db.Column(db.Boolean, nullable=False, default=False)
 
 
+class PasswordResetAttempt(db.Model):
+    __tablename__ = "password_reset_attempts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), nullable=True, index=True)
+    ip_address = db.Column(db.String(64), nullable=False, index=True)
+    attempted_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+
+
 class AuditLog(db.Model):
     __tablename__ = "audit_logs"
 
@@ -299,6 +308,18 @@ class SearchQueryLog(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
 
 
+class SecurityEvent(db.Model):
+    __tablename__ = "security_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    event_type = db.Column(db.String(120), nullable=False, index=True)
+    severity = db.Column(db.String(20), nullable=False, default="warning")
+    ip_address = db.Column(db.String(64), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    details = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+
+
 def create_app():
     app = Flask(__name__)
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///ebook_store.db")
@@ -317,6 +338,11 @@ def create_app():
     app.config["DOWNLOAD_SESSION_TTL_MINUTES"] = int(os.getenv("DOWNLOAD_SESSION_TTL_MINUTES", "15"))
     app.config["REVIEW_RATE_LIMIT_WINDOW_MINUTES"] = int(os.getenv("REVIEW_RATE_LIMIT_WINDOW_MINUTES", "10"))
     app.config["REVIEW_RATE_LIMIT_MAX_ATTEMPTS"] = int(os.getenv("REVIEW_RATE_LIMIT_MAX_ATTEMPTS", "5"))
+    app.config["PASSWORD_RESET_RATE_LIMIT_WINDOW_MINUTES"] = int(os.getenv("PASSWORD_RESET_RATE_LIMIT_WINDOW_MINUTES", "30"))
+    app.config["PASSWORD_RESET_RATE_LIMIT_MAX_ATTEMPTS"] = int(os.getenv("PASSWORD_RESET_RATE_LIMIT_MAX_ATTEMPTS", "5"))
+    app.config["SECURITY_LOG_RETENTION_DAYS"] = int(os.getenv("SECURITY_LOG_RETENTION_DAYS", "90"))
+    app.config["FORCE_HTTPS"] = os.getenv("FORCE_HTTPS", "false").lower() == "true"
+    app.config["ENABLE_STAGING_MODE"] = os.getenv("ENABLE_STAGING_MODE", "false").lower() == "true"
 
     project_root = Path(__file__).resolve().parent
     storage_root = Path(os.getenv("PRIVATE_STORAGE_ROOT", project_root / "private_storage")).resolve()
@@ -357,20 +383,76 @@ def create_app():
         )
         db.session.commit()
 
+    def log_security_event(event_type, severity="warning", user_id=None, details=None):
+        db.session.add(
+            SecurityEvent(
+                event_type=event_type,
+                severity=severity,
+                ip_address=(request.remote_addr or "unknown"),
+                user_id=user_id,
+                details=details,
+            )
+        )
+        db.session.commit()
+
     @app.before_request
-    def enforce_maintenance_mode():
+    def enforce_transport_and_maintenance_mode():
+        if app.config["FORCE_HTTPS"] and not request.is_secure and not request.path.startswith("/health"):
+            secure_url = request.url.replace("http://", "https://", 1)
+            return make_response("", 301, {"Location": secure_url})
+
         if request.path.startswith("/static"):
             return None
         if request.path in ["/auth/login", "/admin/login", "/auth/captcha", "/codes/captcha"]:
             return None
+
+        if app.config["ENABLE_STAGING_MODE"] or get_setting("staging_mode", "false").lower() == "true":
+            return jsonify({"error": "Staging mode active", "staging": True}), 503
+
         if get_setting("maintenance_mode", "false").lower() != "true":
             return None
+
         active_session = get_session_from_cookie()
         if active_session:
             user = User.query.get(active_session.user_id)
             if user and user.role == "admin":
                 return None
-        return jsonify({"error": "Maintenance mode enabled", "notification": get_setting("site_notification", "")}), 503
+
+        disable_downloads = get_setting("maintenance_disable_downloads", "true").lower() == "true"
+        disable_code_entry = get_setting("maintenance_disable_code_entry", "true").lower() == "true"
+        lockdown = get_setting("maintenance_lockdown", "false").lower() == "true"
+
+        path = request.path
+        blocks_download = disable_downloads and (
+            path.startswith("/download/")
+            or path.startswith("/ebooks/") and "/download-link/" in path
+        )
+        blocks_codes = disable_code_entry and path == "/codes/validate"
+
+        if not lockdown and not blocks_download and not blocks_codes:
+            return None
+
+        custom_message = get_setting("maintenance_message", "Maintenance in progress")
+        response = {
+            "error": "Maintenance mode enabled",
+            "notification": get_setting("site_notification", ""),
+            "message": custom_message,
+            "disable_downloads": disable_downloads,
+            "disable_code_entry": disable_code_entry,
+            "lockdown": lockdown,
+        }
+        return jsonify(response), 503
+
+    @app.after_request
+    def add_security_headers(response):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        response.headers["Content-Security-Policy"] = "upgrade-insecure-requests"
+        if request.is_secure or app.config["FORCE_HTTPS"]:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
 
     serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="ebook-download")
     code_serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="code-download")
@@ -413,6 +495,18 @@ def create_app():
 
     def record_login_attempt(email, success):
         db.session.add(LoginAttempt(email=email, ip_address=get_client_ip(), successful=success))
+        db.session.commit()
+
+    def password_reset_rate_limited(email):
+        window_start = utcnow() - timedelta(minutes=app.config["PASSWORD_RESET_RATE_LIMIT_WINDOW_MINUTES"])
+        attempts = PasswordResetAttempt.query.filter(
+            PasswordResetAttempt.attempted_at >= window_start,
+            (PasswordResetAttempt.email == email) | (PasswordResetAttempt.ip_address == get_client_ip()),
+        ).count()
+        return attempts >= app.config["PASSWORD_RESET_RATE_LIMIT_MAX_ATTEMPTS"]
+
+    def record_password_reset_attempt(email):
+        db.session.add(PasswordResetAttempt(email=email, ip_address=get_client_ip()))
         db.session.commit()
 
     def get_session_from_cookie():
@@ -720,6 +814,7 @@ def create_app():
         if captcha_answer != captcha_token:
             return jsonify({"error": "Invalid captcha"}), 400
         if login_blocked(email):
+            log_security_event("login_rate_limited", details=f"email={email}")
             return jsonify({"error": "Too many login attempts. Try later."}), 429
 
         user = User.query.filter_by(email=email).first()
@@ -756,6 +851,11 @@ def create_app():
     def request_password_reset():
         data = as_data()
         email = (data.get("email") or "").strip().lower()
+        if password_reset_rate_limited(email):
+            log_security_event("password_reset_rate_limited", details=f"email={email}")
+            return jsonify({"error": "Too many password reset attempts. Try again later."}), 429
+
+        record_password_reset_attempt(email)
         user = User.query.filter_by(email=email).first()
         if not user:
             return jsonify({"message": "If the account exists, a reset email will be sent."})
@@ -848,6 +948,7 @@ def create_app():
         password = data.get("password") or ""
 
         if login_blocked(email):
+            log_security_event("login_rate_limited", details=f"email={email}")
             return jsonify({"error": "Too many login attempts. Try later."}), 429
 
         user = User.query.filter_by(email=email, role="admin").first()
@@ -1283,6 +1384,7 @@ def create_app():
             abort(404)
         if review_submission_rate_limited(request.current_user.id):
             log_review_attempt(request.current_user.id, ebook_id, False, "rate_limited")
+            log_security_event("review_rate_limited", user_id=request.current_user.id, details=f"ebook_id={ebook_id}")
             return jsonify({"error": "Too many review attempts. Try again later."}), 429
 
         data = as_data()
@@ -1513,6 +1615,7 @@ def create_app():
     @app.post("/codes/validate")
     def validate_code():
         if code_attempts_exceeded():
+            log_security_event("code_rate_limited", details="validate_code")
             return jsonify({"error": "Too many code attempts. Please try again later.", "retry_available": True}), 429
 
         data = as_data()
@@ -2158,13 +2261,47 @@ def create_app():
         log_admin_action(request.current_user.id, f"report_send:{period}")
         return jsonify({"message": "Report generated (email integration placeholder)", "report": payload})
 
+    @app.get("/admin/staging")
+    @require_auth(role="admin")
+    def get_staging_status():
+        enabled = get_setting("staging_mode", "false").lower() == "true"
+        return jsonify({"staging_mode": enabled, "env_default": app.config["ENABLE_STAGING_MODE"]})
+
+    @app.post("/admin/staging/toggle")
+    @require_auth(role="admin")
+    def toggle_staging_mode():
+        data = as_data()
+        enabled = str((data.get("enabled") if data else "false")).lower() == "true"
+        set_setting("staging_mode", str(enabled).lower())
+        log_admin_action(request.current_user.id, f"staging_toggle:{enabled}")
+        return jsonify({"staging_mode": enabled})
+
     @app.post("/admin/maintenance/toggle")
     @require_auth(role="admin")
     def toggle_maintenance_mode():
-        enabled = str((as_data().get("enabled") if as_data() else "true")).lower() == "true"
+        data = as_data()
+        enabled = str((data.get("enabled") if data else "true")).lower() == "true"
+        disable_downloads = str((data.get("disable_downloads") if data else "true")).lower() == "true"
+        disable_code_entry = str((data.get("disable_code_entry") if data else "true")).lower() == "true"
+        lockdown = str((data.get("lockdown") if data else "false")).lower() == "true"
+        message = (data.get("message") if data else None) or "Maintenance in progress"
+
         set_setting("maintenance_mode", str(enabled).lower())
-        log_admin_action(request.current_user.id, f"maintenance_toggle:{enabled}")
-        return jsonify({"maintenance_mode": enabled})
+        set_setting("maintenance_disable_downloads", str(disable_downloads).lower())
+        set_setting("maintenance_disable_code_entry", str(disable_code_entry).lower())
+        set_setting("maintenance_lockdown", str(lockdown).lower())
+        set_setting("maintenance_message", message)
+
+        log_admin_action(request.current_user.id, f"maintenance_toggle:{enabled}:downloads={disable_downloads}:codes={disable_code_entry}:lockdown={lockdown}")
+        return jsonify(
+            {
+                "maintenance_mode": enabled,
+                "disable_downloads": disable_downloads,
+                "disable_code_entry": disable_code_entry,
+                "lockdown": lockdown,
+                "message": message,
+            }
+        )
 
     @app.post("/admin/notifications")
     @require_auth(role="admin")
@@ -2261,6 +2398,64 @@ def create_app():
         db.session.commit()
         log_admin_action(request.current_user.id, f"error_log_create:{row.id}")
         return jsonify({"id": row.id}), 201
+
+    @app.get("/admin/security-events")
+    @require_auth(role="admin")
+    def admin_security_events():
+        rows = SecurityEvent.query.order_by(SecurityEvent.created_at.desc()).limit(500).all()
+        return jsonify(
+            [
+                {
+                    "id": r.id,
+                    "event_type": r.event_type,
+                    "severity": r.severity,
+                    "ip_address": r.ip_address,
+                    "user_id": r.user_id,
+                    "details": r.details,
+                    "created_at": r.created_at.isoformat(),
+                }
+                for r in rows
+            ]
+        )
+
+    @app.post("/admin/backups/schedule")
+    @require_auth(role="admin")
+    def schedule_backup():
+        data = as_data()
+        frequency = (data.get("frequency") or "daily").strip().lower()
+        if frequency not in {"daily", "weekly"}:
+            return jsonify({"error": "frequency must be daily or weekly"}), 400
+        set_setting("backup_schedule", frequency)
+        log_admin_action(request.current_user.id, f"backup_schedule:{frequency}")
+        return jsonify({"message": "Backup schedule updated", "frequency": frequency})
+
+    @app.post("/admin/automation/cleanup")
+    @require_auth(role="admin")
+    def run_automation_cleanup():
+        cutoff = utcnow() - timedelta(days=app.config["SECURITY_LOG_RETENTION_DAYS"])
+
+        expired_codes_deleted = AccessCode.query.filter(AccessCode.expires_at < utcnow(), AccessCode.is_used.is_(False)).delete()
+        old_security_events = SecurityEvent.query.filter(SecurityEvent.created_at < cutoff).delete()
+        old_error_logs = ErrorLog.query.filter(ErrorLog.created_at < cutoff).delete()
+        old_login_attempts = LoginAttempt.query.filter(LoginAttempt.attempted_at < cutoff).delete()
+        old_code_attempts = CodeAttempt.query.filter(CodeAttempt.attempted_at < cutoff).delete()
+        old_review_attempts = ReviewAttemptLog.query.filter(ReviewAttemptLog.attempted_at < cutoff).delete()
+        old_reset_attempts = PasswordResetAttempt.query.filter(PasswordResetAttempt.attempted_at < cutoff).delete()
+
+        db.session.commit()
+        log_admin_action(request.current_user.id, "automation_cleanup_run")
+        return jsonify(
+            {
+                "expired_unused_codes_removed": int(expired_codes_deleted or 0),
+                "old_security_events_removed": int(old_security_events or 0),
+                "old_error_logs_removed": int(old_error_logs or 0),
+                "old_login_attempts_removed": int(old_login_attempts or 0),
+                "old_code_attempts_removed": int(old_code_attempts or 0),
+                "old_review_attempts_removed": int(old_review_attempts or 0),
+                "old_password_reset_attempts_removed": int(old_reset_attempts or 0),
+                "retention_days": app.config["SECURITY_LOG_RETENTION_DAYS"],
+            }
+        )
 
     @app.get("/admin/settings/rate-limits")
     @require_auth(role="admin")

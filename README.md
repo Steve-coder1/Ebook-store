@@ -1,39 +1,56 @@
-# Ebook Store - Systems 1 through 8
+# Ebook Store - Systems 1 through 9
 
-Flask backend implementing authentication, content, secure download delivery, personalization, admin operations, and discovery/SEO.
+Backend: Flask + SQLAlchemy.
 
-## System 8 (Search, Filtering & SEO) highlights
-- Search over title, author, description, category context, and keywords.
-- Real-time suggestions endpoint: `GET /search/suggestions?q=...`
-- Ranked search behavior in `GET /ebooks` (`title > author > description`) with:
-  - partial matching
-  - combined filters (`category`, `author`, `featured`, `min_rating`, `recent_days`)
-  - pagination (`page`, `per_page`)
-  - sort modes (`newest`, `highest_rated`, `most_downloaded`, `alphabetical`)
-- Search analytics logging (`search_query_logs`) and admin analytics endpoint:
-  - `GET /admin/search-analytics`
-  - includes most searched terms and zero-result terms.
-- SEO-friendly slug support for ebooks via `ebook.slug` and `GET /ebook/<slug>` payload with:
-  - meta title
-  - meta description
-  - canonical URL
-  - structured data (Book + AggregateRating).
-- Sitemap endpoint: `GET /sitemap.xml` with homepage/category/ebook URLs.
-- Cached category page endpoint: `GET /categories/<slug>/ebooks` (short-lived cache).
-- Social share payload endpoint: `GET /ebooks/<id>/share` (ebook/preview/review share links only, never file URLs).
+## System 9: Security, Monitoring & Automation
 
-## Existing systems (1-7) retained
-- Auth, admin auth, session security, captcha/rate-limits.
-- Ebook/category/file/version management.
-- Code generation/validation and secure code-gated delivery.
-- Reviews/ratings + analytics.
-- Favorites + user/admin download history views.
-- Admin dashboard, exports, reports, backups, notifications, maintenance mode, error logs.
+### Transport security
+- HTTPS enforcement support via `FORCE_HTTPS=true`.
+- HSTS + secure response headers are added globally.
+- Secure cookies remain enabled (`SESSION_COOKIE_SECURE`).
 
-## Key tables (new for System 8)
-- `search_query_logs`
-- `ebooks.slug`
-- `ebooks.keywords`
+### Rate limiting & abuse controls
+- Login rate limit (existing) with security-event logging.
+- Code entry rate limit (existing) with security-event logging.
+- Review submission rate limit (existing) with security-event logging.
+- Password-reset request rate limiting added (`password_reset_attempts`).
+
+### Bot/abuse visibility
+- Security events table (`security_events`) for suspicious patterns and cooldown events.
+- Admin endpoint: `GET /admin/security-events`.
+
+### Error logging & monitoring
+- Error logs retained in `error_logs`.
+- Failed downloads tracked by `download_attempt_logs`.
+- Admin failure-rate alert endpoint retained: `GET /admin/download-failure-alerts`.
+
+### Automated backups
+- Manual backup trigger retained: `POST /admin/backups/trigger`.
+- Backup schedule setting endpoint added: `POST /admin/backups/schedule` (`daily|weekly`).
+
+### Automated cleanup
+- Cleanup endpoint added: `POST /admin/automation/cleanup`.
+- Removes expired unused codes and purges old logs/attempt tables using retention window (`SECURITY_LOG_RETENTION_DAYS`, default 90).
+
+### Maintenance mode controls
+- Granular maintenance toggles:
+  - `enabled`
+  - `disable_downloads`
+  - `disable_code_entry`
+  - `lockdown`
+  - custom `message`
+- Endpoint: `POST /admin/maintenance/toggle`.
+- All maintenance actions logged to `audit_logs`.
+
+### Staging support
+- Env-level staging lock: `ENABLE_STAGING_MODE=true`.
+- Runtime staging toggle endpoints:
+  - `GET /admin/staging`
+  - `POST /admin/staging/toggle`
+
+## New tables for System 9
+- `password_reset_attempts`
+- `security_events`
 
 ## Run
 ```bash
